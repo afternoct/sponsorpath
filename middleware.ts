@@ -1,33 +1,40 @@
-// src/middleware.ts
-// Protects /dashboard — redirects unauthenticated users to /signin
-// Redirects already-logged-in users away from /signin and /get-started
-
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
-  const { data: { session } } = await supabase.auth.getSession()
+  const res = NextResponse.next();
 
-  const { pathname } = req.nextUrl
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-  // Protect /dashboard — must be logged in
-  if (pathname.startsWith('/dashboard')) {
-    if (!session) {
-      return NextResponse.redirect(new URL('/signin', req.url))
-    }
-  }
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return req.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          res.cookies.set(name, value, options);
+        });
+      },
+    },
+  });
 
-  // If already logged in, redirect away from auth pages
-  if (session && (pathname === '/signin' || pathname === '/get-started')) {
-    return NextResponse.redirect(new URL('/dashboard', req.url))
-  }
+  // Touch auth so session refresh happens when needed
+  await supabase.auth.getUser();
 
-  return res
+  return res;
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/signin', '/get-started'],
-}
+  matcher: [
+    /*
+      Add the routes you actually want middleware on.
+      Example:
+      "/dashboard/:path*",
+      "/signin",
+      "/get-started/:path*",
+    */
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
+};
