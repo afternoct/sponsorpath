@@ -34,3 +34,35 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+# ⚠️ CRITICAL — EXACT FOLDER STRUCTURE
+
+Your Next.js App Router requires files in EXACTLY these locations inside `src/app/`:
+
+```
+src/
+├── app/
+│   ├── layout.tsx                    
+│   ├── page.tsx                      (homepage /)
+│   ├── about/
+│   │   └── page.tsx                  (/about)
+│   ├── pricing/
+│   │   └── page.tsx                  (/pricing)
+│   ├── signin/
+│   │   └── page.tsx                  (/signin)
+│   ├── get-started/
+│   │   ├── page.tsx                  (/get-started)
+│   │   └── verify/
+│   │       └── page.tsx              (/get-started/verify)
+│   └── dashboard/
+│       └── page.tsx                  (/dashboard)
+├── lib/
+│   └── supabase.ts                   
+└── middleware.ts                     (ROOT level — src/middleware.ts)
+```
+
+## .env.local
+NEXT_PUBLIC_SUPABASE_URL=your_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_key
+NEXT_PUBLIC_APP_URL=http://localhost:3000

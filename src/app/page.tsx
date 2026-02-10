@@ -1,368 +1,237 @@
-import Image from 'next/image'
+'use client'
 import Link from 'next/link'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { signIn, verifyOtp, signInWithGoogle, signInWithLinkedIn } from '@/lib/supabase'
 
-export default function Home() {
+export default function SignIn() {
+  const router = useRouter()
+  const [step, setStep] = useState<'login'|'otp'>('login')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [otp, setOtp] = useState(['','','','','',''])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [timer, setTimer] = useState(300)
+
+  const handleLogin = async () => {
+    if (!email || !password) { setError('Please enter your email and password.'); return }
+    setLoading(true); setError('')
+    const { error: err } = await signIn(email, password)
+    setLoading(false)
+    if (err) { setError(err.message.includes('Invalid') ? 'Incorrect email or password.' : err.message); return }
+    setStep('otp')
+    let t = 300
+    const interval = setInterval(() => { t--; setTimer(t); if (t <= 0) clearInterval(interval) }, 1000)
+  }
+
+  const handleVerify = async () => {
+    const token = otp.join('')
+    if (token.length < 6) { setError('Please enter all 6 digits.'); return }
+    setLoading(true); setError('')
+    const { error: err } = await verifyOtp(email, token)
+    setLoading(false)
+    if (err) { setError('Invalid or expired code. Please try again.'); return }
+    router.push('/dashboard')
+  }
+
+  const handleOtpChange = (i: number, v: string) => {
+    if (!/^[0-9]?$/.test(v)) return
+    const next = [...otp]; next[i] = v; setOtp(next)
+    if (v && i < 5) (document.getElementById(`otp${i+1}`) as HTMLInputElement)?.focus()
+  }
+  const handleOtpKey = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !otp[i] && i > 0) (document.getElementById(`otp${i-1}`) as HTMLInputElement)?.focus()
+  }
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const paste = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6)
+    if (paste.length === 6) setOtp(paste.split(''))
+  }
+  const fmt = (s: number) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`
+
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;900&family=DM+Sans:wght@400;500;700&display=swap');
-        :root { --blue:#3B82F6; --blue-l:#60A5FA; --green:#059669; --green-l:#34D399; --navy:#012169; --dark:#0F172A; --muted:#64748B; --border:#E2E8F0; --bg2:#F8FAFC; }
+        @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;900&family=DM+Sans:wght@400;500;600;700&display=swap');
+        :root{--blue:#3B82F6;--blue-d:#1D4ED8;--green:#059669;--muted:#64748B;--border:#E2E8F0;--bg2:#F8FAFC;}
         *{margin:0;padding:0;box-sizing:border-box;}
-        body{font-family:'DM Sans',sans-serif;background:#fff;color:#0F172A;overflow-x:hidden;}
+        body{font-family:'DM Sans',sans-serif;background:var(--bg2);min-height:100vh;}
         a{text-decoration:none;color:inherit;}
+        .page{min-height:100vh;display:grid;grid-template-columns:1fr 1fr;}
 
-        /* ════ NAV ════ */
-        .nav{position:fixed;top:0;width:100%;background:rgba(255,255,255,.97);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);z-index:1000;}
-        .nav-wrap{max-width:1440px;margin:0 auto;padding:.3rem 2.5rem;display:flex;justify-content:space-between;align-items:center;}
-        .logo-wrap{display:flex;align-items:center;}
-        .logo-wrap img{height:80px!important;width:auto!important;display:block;object-fit:contain;}
-        .nav-links{display:flex;gap:2.5rem;list-style:none;}
-        .nav-links a{font-weight:500;font-size:.95rem;color:#0F172A;transition:color .25s;position:relative;padding-bottom:2px;}
-        .nav-links a::after{content:'';position:absolute;bottom:-3px;left:0;width:0;height:2px;background:var(--blue);transition:width .3s;}
-        .nav-links a:hover{color:var(--blue);}
-        .nav-links a:hover::after{width:100%;}
-        .nav-btns{display:flex;gap:.8rem;align-items:center;}
-        .btn{display:inline-block;padding:.72rem 1.6rem;border-radius:8px;font-weight:600;font-size:.95rem;font-family:'DM Sans',sans-serif;border:none;cursor:pointer;transition:all .25s;}
-        .btn-ghost{background:transparent;color:#0F172A;border:1.5px solid var(--border);}
-        .btn-ghost:hover{background:var(--bg2);border-color:var(--blue);}
-        .btn-blue{background:var(--blue);color:#fff;box-shadow:0 4px 14px rgba(59,130,246,.28);}
-        .btn-blue:hover{background:var(--blue-l);transform:translateY(-2px);box-shadow:0 6px 20px rgba(59,130,246,.38);}
-        .btn-green{background:var(--green);color:#fff;box-shadow:0 4px 14px rgba(5,150,105,.28);}
-        .btn-green:hover{background:#047857;transform:translateY(-2px);}
-        .btn-lg{padding:1rem 2.2rem;font-size:1.05rem;border-radius:10px;}
+        /* ── LEFT ── */
+        .left{background:linear-gradient(145deg,#1D4ED8 0%,#0A1628 100%);padding:3rem;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden;}
+        .blob{position:absolute;border-radius:50%;animation:bF 10s ease-in-out infinite;pointer-events:none;}
+        .b1{width:400px;height:400px;background:rgba(96,165,250,.1);top:-120px;right:-100px;}
+        .b2{width:450px;height:450px;background:rgba(52,211,153,.08);bottom:-150px;left:-100px;animation-delay:4s;}
+        .b3{width:200px;height:200px;background:rgba(255,255,255,.04);top:35%;right:15%;animation-delay:7s;}
+        @keyframes bF{0%,100%{transform:scale(1) translate(0,0)}40%{transform:scale(1.15) translate(20px,-15px)}70%{transform:scale(.88) translate(-12px,18px)}}
 
-        /* ════ HERO ════ */
-        .hero{margin-top:86px;background:linear-gradient(140deg,#EFF6FF 0%,#ECFDF5 45%,#EFF6FF 100%);padding:5rem 2.5rem 4.5rem;overflow:hidden;position:relative;}
-        .hero-glow1{position:absolute;top:-80px;right:-80px;width:480px;height:480px;background:radial-gradient(circle,rgba(59,130,246,.12) 0%,transparent 70%);border-radius:50%;pointer-events:none;}
-        .hero-glow2{position:absolute;bottom:-100px;left:-60px;width:380px;height:380px;background:radial-gradient(circle,rgba(16,185,129,.1) 0%,transparent 70%);border-radius:50%;pointer-events:none;}
-        .hero-wrap{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center;position:relative;z-index:1;}
+        .logo-box{display:flex;align-items:center;gap:.65rem;position:relative;z-index:1;}
+        .logo-ic{width:42px;height:42px;background:linear-gradient(135deg,#3B82F6,#34D399);border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:1.3rem;font-family:'Archivo',sans-serif;animation:logoPop .8s cubic-bezier(.34,1.56,.64,1) both;}
+        @keyframes logoPop{from{opacity:0;transform:scale(.5) rotate(-10deg)}to{opacity:1;transform:scale(1) rotate(0)}}
+        .logo-nm{font-family:'Archivo',sans-serif;font-size:1.25rem;font-weight:900;color:#fff;}
+        .logo-nm span{color:#34D399;}
 
-        /* left */
-        .hero-badge{display:inline-flex;align-items:center;gap:.55rem;padding:.48rem 1.1rem;background:rgba(1,33,105,.07);border:1.5px solid rgba(1,33,105,.16);border-radius:50px;font-size:.83rem;font-weight:700;color:var(--navy);margin-bottom:1.5rem;}
-        .hero-left h1{font-family:'Archivo',sans-serif;font-size:3.8rem;font-weight:900;line-height:1.08;color:#0F172A;margin-bottom:1.25rem;letter-spacing:-.025em;}
-        .hero-left h1 em{font-style:normal;background:linear-gradient(130deg,#3B82F6 0%,#012169 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-        .hero-left p{font-size:1.15rem;color:var(--muted);line-height:1.8;margin-bottom:2.5rem;max-width:500px;}
-        .hero-btns{display:flex;gap:1rem;flex-wrap:wrap;}
-        .hero-trust{margin-top:2rem;display:flex;align-items:center;gap:.75rem;color:var(--muted);font-size:.88rem;}
-        .trust-dot{width:6px;height:6px;border-radius:50%;background:#10B981;}
+        /* Dashboard preview */
+        .dash-prev{position:relative;z-index:1;margin:1.5rem 0;}
+        .dash-card{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:18px;padding:1.5rem;backdrop-filter:blur(10px);}
+        .dc-top{display:flex;align-items:center;gap:.5rem;margin-bottom:1.2rem;}
+        .dot-live{width:9px;height:9px;border-radius:50%;background:#34D399;animation:lPulse 2s ease-in-out infinite;}
+        @keyframes lPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 7px rgba(52,211,153,0)}}
+        .dc-top h4{color:#fff;font-size:.9rem;font-weight:700;}
+        .dc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:1rem;}
+        .dc-s{background:rgba(255,255,255,.1);border-radius:10px;padding:.8rem .5rem;text-align:center;}
+        .dc-s .n{font-family:'Archivo',sans-serif;font-size:1.5rem;font-weight:900;color:#fff;display:block;line-height:1;}
+        .dc-s .l{font-size:.62rem;color:rgba(255,255,255,.58);margin-top:.18rem;display:block;}
+        .dc-eng{display:flex;align-items:center;gap:.5rem;padding:.6rem .85rem;background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.25);border-radius:9px;}
+        .dc-eng .ep{width:7px;height:7px;border-radius:50%;background:#34D399;animation:lPulse 1.5s ease-in-out infinite;}
+        .dc-eng span{color:#6EE7B7;font-size:.78rem;font-weight:700;}
+        /* Floating notifications */
+        .notif{position:absolute;background:#fff;border-radius:10px;padding:.5rem .9rem;box-shadow:0 8px 24px rgba(0,0,0,.15);font-size:.76rem;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:.4rem;animation:nFloat 4s ease-in-out infinite;}
+        .n1{bottom:-10px;right:10px;color:#059669;animation-delay:0s;}
+        .n2{top:0;right:-5px;color:#3B82F6;animation-delay:2s;}
+        @keyframes nFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 
-        /* right — live dashboard */
-        .hero-right{display:flex;justify-content:center;}
-        .dash-card{width:100%;max-width:490px;background:linear-gradient(135deg,#1D4ED8 0%,#1E3A5F 100%);border-radius:22px;padding:2.1rem 2rem;box-shadow:0 32px 80px rgba(29,78,216,.25);position:relative;overflow:hidden;}
-        .dash-card::before{content:'';position:absolute;top:-50px;right:-50px;width:190px;height:190px;background:rgba(255,255,255,.06);border-radius:50%;}
-        .dash-card::after{content:'';position:absolute;bottom:-60px;left:-30px;width:230px;height:230px;background:rgba(52,211,153,.1);border-radius:50%;}
-        .dc-top{display:flex;align-items:center;gap:.6rem;margin-bottom:1.3rem;position:relative;z-index:1;}
-        .dc-dot{width:9px;height:9px;border-radius:50%;background:#34D399;}
-        .dc-top h4{color:#fff;font-size:.92rem;font-weight:700;}
-        .dc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.7rem;margin-bottom:1.1rem;position:relative;z-index:1;}
-        .dc-s{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.16);border-radius:9px;padding:.8rem .5rem;text-align:center;}
-        .dc-s .n{font-family:'Archivo',sans-serif;font-size:1.4rem;font-weight:900;color:#fff;display:block;line-height:1;}
-        .dc-s .l{font-size:.65rem;color:rgba(255,255,255,.65);margin-top:.2rem;display:block;}
-        .dc-job{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);border-radius:9px;padding:.8rem .95rem;display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;position:relative;z-index:1;}
-        .dc-job h5{color:#fff;font-size:.82rem;font-weight:700;margin-bottom:.15rem;}
-        .dc-job p{color:rgba(255,255,255,.6);font-size:.7rem;}
-        .dc-score{padding:.22rem .62rem;border-radius:50px;font-size:.74rem;font-weight:700;}
-        .s-green{background:rgba(52,211,153,.22);color:#6EE7B7;}
-        .s-blue{background:rgba(147,197,253,.2);color:#93C5FD;}
-        .dc-pulse{display:flex;align-items:center;gap:.45rem;padding:.55rem .85rem;background:rgba(52,211,153,.16);border:1px solid rgba(52,211,153,.3);border-radius:8px;position:relative;z-index:1;}
-        .pulse{width:7px;height:7px;background:#34D399;border-radius:50%;animation:blink 1.5s ease-in-out infinite;}
-        @keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}
-        .dc-pulse span{color:#6EE7B7;font-size:.75rem;font-weight:700;}
+        .left-body{position:relative;z-index:1;}
+        .left-body h2{font-family:'Archivo',sans-serif;font-size:1.85rem;font-weight:900;color:#fff;line-height:1.22;margin-bottom:.75rem;}
+        .left-body h2 em{font-style:normal;color:#34D399;}
+        .left-body p{color:rgba(255,255,255,.7);line-height:1.8;font-size:.92rem;}
+        .left-foot{color:rgba(255,255,255,.35);font-size:.75rem;position:relative;z-index:1;}
 
-        /* ════ STATS ════ */
-        .stats{padding:2.25rem 2.5rem;border-bottom:1px solid var(--border);}
-        .stats-wrap{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem;text-align:center;}
-        .sc{padding:1.5rem;background:#fff;border:1px solid var(--border);border-radius:12px;transition:all .3s;}
-        .sc:hover{transform:translateY(-4px);box-shadow:0 10px 28px rgba(0,0,0,.07);border-color:var(--blue);}
-        .sc-n{font-family:'Archivo',sans-serif;font-size:2.5rem;font-weight:900;color:var(--blue);line-height:1;margin-bottom:.3rem;}
-        .sc-l{color:var(--muted);font-size:.85rem;font-weight:500;}
+        /* ── RIGHT ── */
+        .right{display:flex;align-items:center;justify-content:center;padding:3rem 2.5rem;}
+        .form-box{width:100%;max-width:440px;}
+        .back{display:inline-flex;align-items:center;gap:.4rem;color:var(--muted);font-size:.85rem;margin-bottom:2rem;transition:color .25s;}
+        .back:hover{color:var(--blue);}
+        .form-box h1{font-family:'Archivo',sans-serif;font-size:1.9rem;font-weight:900;margin-bottom:.4rem;color:#0A0F1E;}
+        .sub{color:var(--muted);font-size:.91rem;margin-bottom:1.7rem;}
+        .fg{margin-bottom:1.2rem;}
+        .fg label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.42rem;color:#374151;}
+        .fg input{width:100%;padding:.82rem 1rem;border:1.5px solid var(--border);border-radius:8px;font-size:.93rem;font-family:'DM Sans',sans-serif;color:#0A0F1E;background:#fff;outline:none;transition:border-color .25s,box-shadow .25s;}
+        .fg input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.1);}
+        .fg input::placeholder{color:#94A3B8;}
+        .forgot{display:flex;justify-content:flex-end;margin-top:-.7rem;margin-bottom:1.25rem;}
+        .forgot a{font-size:.84rem;color:var(--blue);font-weight:600;}
+        .err{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.22);border-radius:8px;padding:.7rem 1rem;color:#DC2626;font-size:.84rem;margin-bottom:1rem;}
+        .sec-note{background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.14);border-radius:8px;padding:.72rem 1rem;font-size:.8rem;color:var(--muted);margin-bottom:1.25rem;display:flex;align-items:flex-start;gap:.5rem;line-height:1.6;}
+        .btn-main{width:100%;padding:1rem;background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:#fff;border:none;border-radius:9px;font-size:1rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .25s;box-shadow:0 4px 16px rgba(59,130,246,.28);}
+        .btn-main:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 24px rgba(59,130,246,.36);}
+        .btn-main:disabled{opacity:.6;cursor:not-allowed;}
+        .divider{display:flex;align-items:center;gap:1rem;margin:1.35rem 0;color:var(--muted);font-size:.82rem;}
+        .divider::before,.divider::after{content:'';flex:1;border-top:1px solid var(--border);}
+        .soc{width:100%;padding:.78rem;border:1.5px solid var(--border);border-radius:8px;background:#fff;font-size:.89rem;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.6rem;transition:all .25s;margin-bottom:.6rem;}
+        .soc:hover{border-color:var(--blue);background:var(--bg2);}
+        .bot{text-align:center;margin-top:1.5rem;font-size:.88rem;color:var(--muted);}
+        .bot a{color:var(--blue);font-weight:700;}
 
-        /* ════ SECTION COMMON ════ */
-        .stag{display:inline-block;padding:.4rem 1.1rem;background:var(--blue);color:#fff;border-radius:50px;font-size:.76rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:1rem;}
-        .sh2{font-family:'Archivo',sans-serif;font-size:2.6rem;font-weight:800;color:#0F172A;margin-bottom:.85rem;line-height:1.2;}
-        .ssub{font-size:1.05rem;color:var(--muted);}
-        .shead{text-align:center;max-width:660px;margin:0 auto 3.5rem;}
+        /* OTP */
+        .otp-icon{font-size:3.2rem;margin-bottom:1.1rem;text-align:center;}
+        .otp-email{font-weight:700;color:var(--blue-d);text-align:center;margin-bottom:1.5rem;font-size:.9rem;}
+        .otp-row{display:flex;gap:.62rem;justify-content:center;margin-bottom:1.25rem;}
+        .oi{width:52px;height:58px;border:1.5px solid var(--border);border-radius:10px;font-size:1.7rem;font-weight:900;text-align:center;font-family:'Archivo',sans-serif;color:var(--blue-d);background:#fff;outline:none;transition:all .25s;}
+        .oi:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+        .oi.has{border-color:var(--blue);background:#EFF6FF;}
+        .oi::-webkit-inner-spin-button{-webkit-appearance:none;}
+        .timer-txt{text-align:center;margin-bottom:1rem;font-size:.85rem;color:var(--muted);}
+        .timer-txt strong{color:#EF4444;}
+        .resend{text-align:center;font-size:.84rem;color:var(--muted);margin-top:.9rem;}
+        .resend button{background:none;border:none;color:var(--blue);font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:.84rem;}
 
-        /* ════ FEATURES ════ */
-        .features{padding:6rem 2.5rem;background:var(--bg2);}
-        .feat-grid{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:1.75rem;}
-        .fc{background:#fff;padding:2.1rem;border-radius:16px;border:1px solid var(--border);transition:all .4s;position:relative;overflow:hidden;}
-        .fc::before{content:'';position:absolute;top:0;left:0;width:100%;height:4px;background:linear-gradient(90deg,var(--blue),var(--navy));transform:scaleX(0);transform-origin:left;transition:transform .4s;}
-        .fc:hover{transform:translateY(-7px);box-shadow:0 20px 40px rgba(0,0,0,.09);border-color:var(--blue);}
-        .fc:hover::before{transform:scaleX(1);}
-        .fi{width:52px;height:52px;background:linear-gradient(135deg,var(--blue),var(--navy));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:1.1rem;animation:float 3s ease-in-out infinite;}
-        .fc:nth-child(2) .fi{animation-delay:.2s}.fc:nth-child(3) .fi{animation-delay:.4s}
-        .fc:nth-child(4) .fi{animation-delay:.6s}.fc:nth-child(5) .fi{animation-delay:.8s}.fc:nth-child(6) .fi{animation-delay:1s}
-        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
-        .fc h3{font-family:'Archivo',sans-serif;font-size:1.18rem;font-weight:700;margin-bottom:.65rem;}
-        .fc p{color:var(--muted);line-height:1.72;margin-bottom:1.1rem;font-size:.91rem;}
-        .ftag{display:inline-flex;padding:.3rem .75rem;background:rgba(59,130,246,.1);color:var(--blue);border-radius:6px;font-size:.76rem;font-weight:700;}
-
-        /* ════ HOW IT WORKS ════ */
-        .hiw{padding:6rem 2.5rem;}
-        .hiw-wrap{max-width:1440px;margin:0 auto;}
-        .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:1.75rem;}
-        .step{text-align:center;padding:2rem 1.5rem;border-radius:16px;border:1px solid var(--border);background:#fff;transition:all .3s;}
-        .step:hover{transform:translateY(-6px);box-shadow:0 16px 40px rgba(0,0,0,.08);border-color:var(--blue);}
-        .snum{width:66px;height:66px;background:#fff;border:3px solid var(--blue);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1.1rem;font-size:1.6rem;font-weight:900;font-family:'Archivo',sans-serif;color:var(--blue);box-shadow:0 5px 18px rgba(59,130,246,.16);transition:all .3s;}
-        .step:hover .snum{background:var(--blue);color:#fff;}
-        .step h3{font-family:'Archivo',sans-serif;font-size:1.08rem;font-weight:700;margin-bottom:.6rem;}
-        .step p{color:var(--muted);font-size:.88rem;line-height:1.65;}
-        .ebadge{display:inline-flex;align-items:center;gap:.28rem;padding:.26rem .65rem;background:linear-gradient(135deg,rgba(59,130,246,.1),rgba(1,33,105,.1));border:1px solid rgba(59,130,246,.2);border-radius:50px;font-size:.68rem;font-weight:700;color:var(--navy);margin-top:.6rem;}
-
-        /* ════ ENGINE SECTION ════ */
-        .engine{padding:5.5rem 2.5rem;background:linear-gradient(135deg,#0F172A 0%,#0F2952 100%);position:relative;overflow:hidden;}
-        .engine::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 15% 50%,rgba(59,130,246,.13) 0%,transparent 50%),radial-gradient(circle at 85% 50%,rgba(16,185,129,.09) 0%,transparent 50%);}
-        .engine-wrap{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:center;position:relative;z-index:1;}
-        .engine-txt h2{font-family:'Archivo',sans-serif;font-size:2.6rem;font-weight:900;color:#fff;line-height:1.2;margin-bottom:1.1rem;}
-        .engine-txt h2 em{font-style:normal;background:linear-gradient(135deg,#60A5FA,#34D399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-        .engine-txt p{font-size:1.05rem;color:rgba(255,255,255,.78);line-height:1.82;margin-bottom:1.75rem;}
-        .egrid{display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;}
-        .ecard{padding:1.35rem;text-align:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:12px;}
-        .ecard .n{font-family:'Archivo',sans-serif;font-size:1.9rem;font-weight:900;color:#60A5FA;display:block;margin-bottom:.2rem;}
-        .ecard .l{color:rgba(255,255,255,.6);font-size:.78rem;}
-
-        /* ════ CTA ════ */
-        .cta{padding:5.5rem 2.5rem;background:var(--bg2);border-top:1px solid var(--border);}
-        .cta-wrap{max-width:760px;margin:0 auto;text-align:center;}
-        .cta-wrap h2{font-family:'Archivo',sans-serif;font-size:2.8rem;font-weight:900;color:#0F172A;margin-bottom:1.1rem;line-height:1.2;}
-        .cta-wrap p{font-size:1.15rem;color:var(--muted);margin-bottom:2.25rem;}
-        .cta-btns{display:flex;gap:1.1rem;justify-content:center;}
-
-        /* ════ FOOTER ════ */
-        footer{background:#0F172A;color:rgba(255,255,255,.68);padding:3.5rem 2.5rem 1.75rem;}
-        .foot-wrap{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:4rem;margin-bottom:2.5rem;}
-        .foot-logo img{height:62px!important;width:auto!important;filter:brightness(0) invert(1);margin-bottom:.9rem;display:block;}
-        .foot-brand p{line-height:1.72;font-size:.9rem;}
-        .foot-col h4{color:#fff;font-weight:700;margin-bottom:1rem;font-size:.92rem;}
-        .foot-col ul{list-style:none;}
-        .foot-col li{margin-bottom:.6rem;}
-        .foot-col a{color:rgba(255,255,255,.6);font-size:.9rem;transition:color .25s;}
-        .foot-col a:hover{color:#60A5FA;}
-        .foot-bottom{max-width:1440px;margin:0 auto;padding-top:1.75rem;border-top:1px solid rgba(255,255,255,.1);text-align:center;color:rgba(255,255,255,.42);font-size:.84rem;}
-
-        /* ════ RESPONSIVE ════ */
-        @media(max-width:1100px){
-          .hero-wrap,.engine-wrap{grid-template-columns:1fr;}
-          .hero-right{display:none;}
-          .feat-grid,.steps{grid-template-columns:1fr 1fr;}
-        }
-        @media(max-width:768px){
-          .hero-left h1{font-size:2.6rem;}
-          .nav-links{display:none;}
-          .stats-wrap{grid-template-columns:1fr 1fr;}
-          .feat-grid,.steps{grid-template-columns:1fr;}
-          .foot-wrap{grid-template-columns:1fr;gap:2rem;}
-          .hero-btns,.cta-btns{flex-direction:column;align-items:flex-start;}
-          .sh2{font-size:2rem;}
-        }
+        @media(max-width:900px){.page{grid-template-columns:1fr;}.left{display:none;}.right{padding:2.5rem 1.5rem;}}
       `}</style>
 
-      {/* ── NAV ── */}
-      <nav className="nav">
-        <div className="nav-wrap">
-          <div className="logo-wrap">
-            <Image src="/logo.png" alt="SponsorPath" width={280} height={80} priority />
-          </div>
-          <ul className="nav-links">
-            <li><a href="#features">Features</a></li>
-            <li><a href="#how-it-works">How It Works</a></li>
-            <li><Link href="/pricing">Pricing</Link></li>
-            <li><Link href="/about">About</Link></li>
-          </ul>
-          <div className="nav-btns">
-            <Link href="/signin" className="btn btn-ghost">Sign In</Link>
-            <Link href="/get-started" className="btn btn-blue">Get Started</Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* ── HERO ── */}
-      <section className="hero">
-        <div className="hero-glow1" /><div className="hero-glow2" />
-        <div className="hero-wrap">
-
-          {/* LEFT */}
-          <div className="hero-left">
-            <div className="hero-badge">
-              <svg width="26" height="17" viewBox="0 0 60 36" style={{borderRadius:'3px',flexShrink:0}}>
-                <rect width="60" height="36" fill="#012169"/>
-                <path d="M0,0 L60,36 M60,0 L0,36" stroke="#fff" strokeWidth="6"/>
-                <path d="M0,0 L60,36 M60,0 L0,36" stroke="#C8102E" strokeWidth="4"/>
-                <path d="M30,0 V36 M0,18 H60" stroke="#fff" strokeWidth="10"/>
-                <path d="M30,0 V36 M0,18 H60" stroke="#C8102E" strokeWidth="6"/>
-              </svg>
-              Built for UK Visa Candidates
-            </div>
-            <h1>
-              Land Your UK Job.<br/>
-              <em>SponsorPath Engine</em><br/>
-              Handles the Rest.
-            </h1>
-            <p>
-              Register once. Set your career preferences. The SponsorPath Engine searches
-              thousands of roles, tailors your resume to every JD, and auto-submits
-              applications — so you wake up to interview requests, not job-hunting stress.
-            </p>
-            <div className="hero-btns">
-              <Link href="/get-started" className="btn btn-green btn-lg">Get Started Free →</Link>
-              <Link href="#how-it-works" className="btn btn-ghost btn-lg">See How It Works</Link>
-            </div>
-            <div className="hero-trust">
-              <div className="trust-dot"/><span>No credit card required</span>
-              <div className="trust-dot"/><span>Free 14-day trial</span>
-              <div className="trust-dot"/><span>Cancel anytime</span>
-            </div>
+      <div className="page">
+        {/* ── LEFT PANEL ── */}
+        <div className="left">
+          <div className="blob b1"/><div className="blob b2"/><div className="blob b3"/>
+          <div className="logo-box">
+            <div className="logo-ic">S</div>
+            <div className="logo-nm">Sponsor<span>Path</span></div>
           </div>
 
-          {/* RIGHT — Live dashboard */}
-          <div className="hero-right">
+          <div className="dash-prev" style={{position:'relative'}}>
+            <div className="notif n1">✅ Interview at Revolut booked!</div>
+            <div className="notif n2">⚡ 14 jobs applied overnight</div>
             <div className="dash-card">
-              <div className="dc-top">
-                <div className="dc-dot"/><h4>SponsorPath Dashboard</h4>
-              </div>
-              <div className="dc-grid">
-                {[{n:'14',l:'Applied'},{n:'3',l:'Replies'},{n:'89%',l:'Avg Match'},{n:'✓',l:'ATS Pass'}].map(s=>(
-                  <div key={s.l} className="dc-s">
-                    <span className="n">{s.n}</span><span className="l">{s.l}</span>
-                  </div>
+              <div className="dc-top"><div className="dot-live"/><h4>Your Dashboard is ready</h4></div>
+              <div className="dc-stats">
+                {[{n:'12',l:'Applied Today'},{n:'3',l:'Responses'},{n:'89%',l:'Avg Match'}].map(s=>(
+                  <div key={s.l} className="dc-s"><span className="n">{s.n}</span><span className="l">{s.l}</span></div>
                 ))}
               </div>
-              {[
-                {t:'Senior DevOps Engineer',c:'Revolut · London',s:'94%',hi:true},
-                {t:'Backend Software Engineer',c:'Monzo · London',s:'81%',hi:false},
-                {t:'Data Engineer',c:'Wise · London',s:'88%',hi:true},
-              ].map(j=>(
-                <div key={j.t} className="dc-job">
-                  <div><h5>{j.t}</h5><p>🏢 {j.c} · 🇬🇧 Sponsor ✓</p></div>
-                  <span className={`dc-score ${j.hi?'s-green':'s-blue'}`}>{j.s}</span>
+              <div className="dc-eng"><div className="ep"/><span>⚡ SponsorPath Engine is actively searching for you...</span></div>
+            </div>
+          </div>
+
+          <div className="left-body">
+            <h2>Welcome back.<br/>Your <em>jobs are waiting.</em></h2>
+            <p>The SponsorPath Engine has been searching and applying on your behalf. Sign in to see your latest results, responses, and upcoming interviews.</p>
+          </div>
+          <div className="left-foot"><p>Not immigration advice. © 2026 SponsorPath</p></div>
+        </div>
+
+        {/* ── RIGHT PANEL ── */}
+        <div className="right">
+          <div className="form-box">
+            {step === 'login' ? (
+              <>
+                <Link href="/" className="back">← Back to home</Link>
+                <h1>Sign In</h1>
+                <p className="sub">Enter your credentials to access your dashboard.</p>
+                {error && <div className="err">⚠️ {error}</div>}
+                <div className="fg">
+                  <label>Email Address</label>
+                  <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/>
                 </div>
-              ))}
-              <div className="dc-pulse">
-                <div className="pulse"/><span>SponsorPath Engine actively searching...</span>
-              </div>
-            </div>
+                <div className="fg">
+                  <label>Password</label>
+                  <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
+                </div>
+                <div className="forgot"><a href="#">Forgot password?</a></div>
+                <div className="sec-note">🔒 We use 6-digit OTP verification to keep your account secure. You&apos;ll receive a code by email after signing in.</div>
+                <button className="btn-main" onClick={handleLogin} disabled={loading}>
+                  {loading ? 'Signing In...' : 'Continue to Verification →'}
+                </button>
+                <div className="divider">or continue with</div>
+                <button className="soc" onClick={()=>signInWithGoogle()}>
+                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                  Continue with Google
+                </button>
+                <button className="soc" onClick={()=>signInWithLinkedIn()}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="#0A66C2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                  Continue with LinkedIn
+                </button>
+                <div className="bot">Don&apos;t have an account? <Link href="/get-started">Sign up free</Link></div>
+              </>
+            ) : (
+              <>
+                <div className="otp-icon">📱</div>
+                <h1 style={{textAlign:'center'}}>Check Your Email</h1>
+                <p className="sub" style={{textAlign:'center'}}>We sent a 6-digit code to</p>
+                <div className="otp-email">{email}</div>
+                {error && <div className="err">⚠️ {error}</div>}
+                <div className="otp-row" onPaste={handlePaste}>
+                  {otp.map((v,i)=>(
+                    <input key={i} id={`otp${i}`} className={`oi${v?' has':''}`} type="number" value={v}
+                      onChange={e=>handleOtpChange(i,e.target.value)}
+                      onKeyDown={e=>handleOtpKey(i,e)} autoFocus={i===0}/>
+                  ))}
+                </div>
+                <div className="timer-txt">Code expires in <strong>{fmt(timer)}</strong></div>
+                <div className="sec-note">🛡️ This one-time code ensures only you can access your SponsorPath account and dashboard data.</div>
+                <button className="btn-main" onClick={handleVerify} disabled={loading || otp.join('').length<6}>
+                  {loading ? 'Verifying...' : 'Verify & Open Dashboard →'}
+                </button>
+                <div className="resend">
+                  Didn&apos;t get it? <button onClick={()=>{signIn(email,password);setTimer(300)}}>Resend code</button>
+                </div>
+                <p style={{textAlign:'center',marginTop:'1rem',fontSize:'.84rem',color:'var(--muted)',cursor:'pointer'}} onClick={()=>setStep('login')}>← Back to sign in</p>
+              </>
+            )}
           </div>
         </div>
-      </section>
-
-      {/* ── STATS ── */}
-      <section className="stats">
-        <div className="stats-wrap">
-          {[{n:'30%',l:'Response Rate'},{n:'5x',l:'Faster Applications'},{n:'30K+',l:'UK Sponsors Tracked'},{n:'0',l:'Fake Skills Added'}].map(s=>(
-            <div key={s.l} className="sc"><div className="sc-n">{s.n}</div><div className="sc-l">{s.l}</div></div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── FEATURES ── */}
-      <section className="features" id="features">
-        <div className="shead">
-          <span className="stag">Why SponsorPath</span>
-          <h2 className="sh2">Built Different. Built Better.</h2>
-          <p className="ssub">A complete application quality engine — not just another resume builder.</p>
-        </div>
-        <div className="feat-grid">
-          {[
-            {i:'🎯',t:'Master Profile',d:"Upload once. We extract your real experience — nothing fabricated. Your verified truth source for every single application.",g:'100% Authentic'},
-            {i:'⚙️',t:'SponsorPath Engine',d:"Our engine reads every JD, extracts requirements, detects mismatches early, and stops poor applications before they damage your reputation.",g:'Smart Matching'},
-            {i:'✨',t:'Fresh CV Per Job',d:"Every application gets a brand-new tailored resume. Rewritten summary, reordered skills, job-specific language. Zero generic CVs ever.",g:'ATS-Optimised'},
-            {i:'🇬🇧',t:'UK Visa Intelligence',d:"Detects UK sponsor licences, adapts for Graduate vs Skilled Worker visas. 30,000+ licensed sponsors tracked and updated weekly.",g:'UK-Specific'},
-            {i:'🛡️',t:'Application Protection',d:"Hard stop for poor matches (<40%). No fake skills ever added. Daily application limits. We protect your professional reputation.",g:'Quality Gates'},
-            {i:'📊',t:'Live Dashboard',d:"Track every application in real time. Response rates, interview conversions, top matched companies. Full visibility and analytics.",g:'Full Transparency'},
-          ].map(f=>(
-            <div key={f.t} className="fc">
-              <div className="fi">{f.i}</div>
-              <h3>{f.t}</h3><p>{f.d}</p>
-              <span className="ftag">{f.g}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── HOW IT WORKS ── */}
-      <section className="hiw" id="how-it-works">
-        <div className="hiw-wrap">
-          <div className="shead">
-            <span className="stag">Simple Process</span>
-            <h2 className="sh2">From Sign Up to Dream Job</h2>
-            <p className="ssub">One registration. Zero manual work. Maximum results.</p>
-          </div>
-          <div className="steps">
-            {[
-              {n:'1',t:'Register & Set Preferences',d:'Sign up and tell us your visa status, target stream — DevOps, Engineering, Finance, etc. — and your preferred UK locations.',e:false},
-              {n:'2',t:'Upload Your Resume',d:'Upload your current CV. The SponsorPath Engine checks ATS standards and builds your verified Master Profile automatically.',e:true},
-              {n:'3',t:'Engine Finds Your Jobs',d:'SponsorPath Engine searches job boards and company career pages daily in your chosen stream, filtering by UK sponsor licence status.',e:true},
-              {n:'4',t:'Resume Matched to JD',d:'For every matched role, your resume is completely rewritten and tailored to that specific job description. A fresh CV every time.',e:true},
-              {n:'5',t:'Applications Auto-Submitted',d:'SponsorPath Engine fills forms, answers screening questions, and submits your application directly to employers on your behalf.',e:true},
-              {n:'6',t:'Track & Win Interviews',d:'Monitor every application in your dashboard. Get notified of responses. Focus on interview prep — not job hunting.',e:false},
-            ].map(s=>(
-              <div key={s.n} className="step">
-                <div className="snum">{s.n}</div>
-                <h3>{s.t}</h3><p>{s.d}</p>
-                {s.e&&<div className="ebadge">⚡ SponsorPath Engine</div>}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── ENGINE SHOWCASE ── */}
-      <section className="engine">
-        <div className="engine-wrap">
-          <div className="engine-txt">
-            <h2>Powered by the<br/><em>SponsorPath Engine</em></h2>
-            <p>Our proprietary engine does what no job board can — reads your profile, understands your visa needs, searches thousands of jobs, tailors your resume for each one, and submits applications on your behalf. All automatically. All accurately. All day, every day.</p>
-            <Link href="/get-started" className="btn btn-blue btn-lg">Start Free Trial</Link>
-          </div>
-          <div className="egrid">
-            {[{n:'30K+',l:'UK Sponsors Tracked'},{n:'24/7',l:'Continuous Search'},{n:'<30s',l:'CV Per Job'},{n:'100%',l:'ATS Pass Rate'}].map(s=>(
-              <div key={s.l} className="ecard"><span className="n">{s.n}</span><span className="l">{s.l}</span></div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA ── */}
-      <section className="cta">
-        <div className="cta-wrap">
-          <h2>Ready to Stop Wasting Applications?</h2>
-          <p>Let the SponsorPath Engine do the hard work while you prepare for interviews.</p>
-          <div className="cta-btns">
-            <Link href="/get-started" className="btn btn-blue btn-lg">Start Free Trial</Link>
-            <Link href="/about" className="btn btn-ghost btn-lg">Learn More</Link>
-          </div>
-        </div>
-      </section>
-
-      {/* ── FOOTER ── */}
-      <footer>
-        <div className="foot-wrap">
-          <div className="foot-brand">
-            <div className="foot-logo"><Image src="/logo.png" alt="SponsorPath" width={240} height={62}/></div>
-            <p>The SponsorPath Engine handles job search, resume tailoring, and application submission for UK visa candidates. Quality over quantity. Every single time.</p>
-          </div>
-          <div className="foot-col"><h4>Product</h4><ul>
-            <li><a href="#features">Features</a></li>
-            <li><Link href="/pricing">Pricing</Link></li>
-            <li><a href="#how-it-works">How It Works</a></li>
-            <li><a href="#">Roadmap</a></li>
-          </ul></div>
-          <div className="foot-col"><h4>Resources</h4><ul>
-            <li><a href="#">Blog</a></li>
-            <li><a href="#">UK Sponsor List</a></li>
-            <li><a href="#">Visa Guides</a></li>
-            <li><a href="#">Help Centre</a></li>
-          </ul></div>
-          <div className="foot-col"><h4>Company</h4><ul>
-            <li><Link href="/about">About Us</Link></li>
-            <li><a href="#">Contact</a></li>
-            <li><a href="#">Privacy</a></li>
-            <li><a href="#">Terms</a></li>
-          </ul></div>
-        </div>
-        <div className="foot-bottom"><p>&copy; 2026 SponsorPath. Built with ❤️ for UK job seekers. Not immigration advice.</p></div>
-      </footer>
+      </div>
     </>
   )
 }
