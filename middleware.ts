@@ -1,40 +1,55 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+// ════════════════════════════════════════════════════════════════
+// FILE:  middleware.ts
+// WHERE: Project ROOT (same folder as package.json, next.config.ts)
+// ════════════════════════════════════════════════════════════════
+// INSTALL FIRST: npm install @supabase/ssr
+//
+// Protects /dashboard — unauthenticated users redirected to /signin
+// Logged-in users visiting /signin redirected to /dashboard
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+export async function middleware(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
 
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value)
+          )
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          res.cookies.set(name, value, options);
-        });
-      },
-    },
-  });
+    }
+  )
 
-  // Touch auth so session refresh happens when needed
-  await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession()
+  const { pathname } = request.nextUrl
 
-  return res;
+  // Protect /dashboard — redirect to /signin if not logged in
+  if (pathname.startsWith('/dashboard') && !session) {
+    return NextResponse.redirect(new URL('/signin', request.url))
+  }
+
+  // Already logged in — skip auth pages, go straight to dashboard
+  if (session && (pathname === '/signin' || pathname === '/get-started')) {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  return supabaseResponse
 }
 
 export const config = {
-  matcher: [
-    /*
-      Add the routes you actually want middleware on.
-      Example:
-      "/dashboard/:path*",
-      "/signin",
-      "/get-started/:path*",
-    */
-    "/((?!_next/static|_next/image|favicon.ico).*)",
-  ],
-};
+  matcher: ['/dashboard/:path*', '/signin', '/get-started'],
+}

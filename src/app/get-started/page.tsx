@@ -1,214 +1,272 @@
+// ════════════════════════════════════════════════════════
+// FILE PATH: src/app/get-started/page.tsx  →  localhost:3000/get-started
+// ════════════════════════════════════════════════════════
 'use client'
 import Link from 'next/link'
-import { useEffect } from 'react'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { signUp, signInWithGoogle, signInWithLinkedIn } from '@/lib/supabase'
 
-export default function About() {
-  useEffect(() => {
-    const obs = new IntersectionObserver(entries =>
-      entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in') }),
-      { threshold: 0.12 }
-    )
-    document.querySelectorAll('.rv,.rl,.rr').forEach(el => obs.observe(el))
-    return () => obs.disconnect()
-  }, [])
+const STREAMS = ['Software Engineering','DevOps / Cloud','Data & Analytics','Product Management','Finance & Banking','Business Analysis','Consulting','Cyber Security','Marketing','UX / Design','HR & Talent','Operations','Other']
+
+export default function GetStarted() {
+  const router = useRouter()
+  const [streams, setStreams] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', visaStatus:'', locations:'' })
+
+  const toggle = (s: string) => setStreams(p => p.includes(s) ? p.filter(x=>x!==s) : [...p, s])
+  const set = (k: string, v: string) => setForm(p => ({...p, [k]:v}))
+
+  const handleSubmit = async () => {
+    setError('')
+    if (!form.firstName || !form.email || !form.password || !form.visaStatus || streams.length === 0) {
+      setError('Please fill in all required fields and select at least one career stream.'); return
+    }
+    if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return }
+    setLoading(true)
+    const { error: err } = await signUp(form.email, form.password, {
+      firstName: form.firstName, lastName: form.lastName,
+      visaStatus: form.visaStatus, targetStreams: streams, preferredLocations: form.locations
+    })
+    setLoading(false)
+    if (err) { setError(err.message); return }
+    // Store email for OTP verification step
+    sessionStorage.setItem('sp_verify_email', form.email)
+    router.push('/get-started/verify')
+  }
 
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;900&family=DM+Sans:wght@400;500;600;700&display=swap');
-        :root{--blue:#3B82F6;--blue-d:#1D4ED8;--green:#059669;--navy:#012169;--dark:#0A0F1E;--muted:#64748B;--border:#E2E8F0;--bg2:#F8FAFC;}
-        *{margin:0;padding:0;box-sizing:border-box;} html{scroll-behavior:smooth;}
-        body{font-family:'DM Sans',sans-serif;background:#fff;color:var(--dark);overflow-x:hidden;} a{text-decoration:none;color:inherit;}
-        .rv{opacity:0;transform:translateY(30px);transition:opacity .7s ease,transform .7s ease;}
-        .rl{opacity:0;transform:translateX(-35px);transition:opacity .7s ease,transform .7s ease;}
-        .rr{opacity:0;transform:translateX(35px);transition:opacity .7s ease,transform .7s ease;}
-        .rv.in,.rl.in,.rr.in{opacity:1;transform:none;}
-        .d1{transition-delay:.1s!important;}.d2{transition-delay:.2s!important;}.d3{transition-delay:.3s!important;}.d4{transition-delay:.4s!important;}
+        :root{--blue:#3B82F6;--blue-d:#1D4ED8;--green:#059669;--navy:#012169;--muted:#64748B;--border:#E2E8F0;--bg2:#F8FAFC;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{font-family:'DM Sans',sans-serif;background:var(--bg2);color:#0A0F1E;min-height:100vh;}
+        a{text-decoration:none;color:inherit;}
+        .page{min-height:100vh;display:grid;grid-template-columns:1fr 1fr;}
 
-        /* NAV */
-        .nav{position:fixed;top:0;width:100%;background:rgba(255,255,255,.97);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);z-index:1000;}
-        .nw{max-width:1440px;margin:0 auto;padding:.35rem 2.5rem;display:flex;justify-content:space-between;align-items:center;}
-        .logo-box{display:flex;align-items:center;gap:.65rem;}
+        /* LEFT */
+        .left{background:linear-gradient(145deg,#1D4ED8,#0F2952);padding:3rem;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden;}
+        .blob{position:absolute;border-radius:50%;animation:bF 9s ease-in-out infinite;}
+        .b1{width:320px;height:320px;background:rgba(255,255,255,.05);top:-80px;right:-80px;}
+        .b2{width:380px;height:380px;background:rgba(52,211,153,.08);bottom:-110px;left:-70px;animation-delay:3s;}
+        .b3{width:180px;height:180px;background:rgba(96,165,250,.07);top:38%;right:10%;animation-delay:5.5s;}
+        .b4{width:240px;height:240px;background:rgba(255,255,255,.04);bottom:30%;left:35%;animation-delay:7s;}
+        @keyframes bF{0%,100%{transform:scale(1) translate(0,0)}33%{transform:scale(1.12) translate(12px,-8px)}66%{transform:scale(.9) translate(-8px,14px)}}
+
+        .logo-box{display:flex;align-items:center;gap:.65rem;position:relative;z-index:1;}
         .logo-ic{width:42px;height:42px;background:linear-gradient(135deg,#3B82F6,#34D399);border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:1.25rem;font-family:'Archivo',sans-serif;animation:logoPop .8s cubic-bezier(.34,1.56,.64,1) both;}
-        @keyframes logoPop{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:scale(1)}}
-        .logo-nm{font-family:'Archivo',sans-serif;font-size:1.2rem;font-weight:900;color:#0A0F1E;}
-        .logo-nm span{color:#3B82F6;}
-        .nl{display:flex;gap:2.5rem;list-style:none;}
-        .nl a{font-weight:500;font-size:.95rem;color:#0A0F1E;transition:color .25s;position:relative;padding-bottom:2px;}
-        .nl a::after{content:'';position:absolute;bottom:-3px;left:0;width:0;height:2px;background:var(--blue);transition:width .3s;}
-        .nl a:hover{color:var(--blue);} .nl a:hover::after{width:100%;}
-        .nb{display:flex;gap:.8rem;}
-        .btn{display:inline-block;padding:.7rem 1.6rem;border-radius:9px;font-weight:600;font-size:.93rem;font-family:'DM Sans',sans-serif;border:none;cursor:pointer;transition:all .25s;}
-        .btn-ghost{background:transparent;color:#0A0F1E;border:1.5px solid var(--border);}
-        .btn-ghost:hover{background:var(--bg2);border-color:var(--blue);}
-        .btn-blue{background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:#fff;box-shadow:0 4px 14px rgba(59,130,246,.28);}
-        .btn-blue:hover{transform:translateY(-2px);}
-        .btn-lg{padding:.95rem 2.2rem;font-size:1.03rem;border-radius:11px;}
+        @keyframes logoPop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+        .logo-nm{font-family:'Archivo',sans-serif;font-size:1.2rem;font-weight:900;color:#fff;}
+        .logo-nm span{color:#34D399;}
 
-        /* HERO */
-        .hero{margin-top:86px;background:linear-gradient(145deg,#EFF6FF 0%,#F0FDF4 50%,#EFF6FF 100%);padding:5.5rem 2.5rem 4.5rem;text-align:center;position:relative;overflow:hidden;}
-        .hero-blob1,.hero-blob2{position:absolute;border-radius:50%;filter:blur(70px);pointer-events:none;animation:blobF 9s ease-in-out infinite;}
-        .hero-blob1{width:500px;height:500px;background:radial-gradient(circle,rgba(59,130,246,.12),transparent 70%);top:-100px;right:-100px;}
-        .hero-blob2{width:450px;height:450px;background:radial-gradient(circle,rgba(16,185,129,.1),transparent 70%);bottom:-100px;left:-80px;animation-delay:4s;}
-        @keyframes blobF{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
-        .hero h1{font-family:'Archivo',sans-serif;font-size:3.4rem;font-weight:900;margin-bottom:1.2rem;line-height:1.1;position:relative;z-index:1;}
-        .hero h1 em{font-style:normal;background:linear-gradient(135deg,#3B82F6,#1D4ED8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-        .hero p{font-size:1.18rem;color:var(--muted);max-width:680px;margin:0 auto;line-height:1.85;position:relative;z-index:1;}
+        /* Illustration */
+        .illo{position:relative;z-index:1;margin:1.5rem 0;display:flex;justify-content:center;}
+        .illo-inner{position:relative;width:280px;height:220px;}
+        .float-card{position:absolute;background:rgba(255,255,255,.14);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.22);border-radius:12px;padding:.55rem 1rem;font-size:.76rem;font-weight:700;color:#fff;white-space:nowrap;display:flex;align-items:center;gap:.45rem;animation:cardF 4s ease-in-out infinite;}
+        .fc1{top:10px;left:-10px;animation-delay:0s;}
+        .fc2{top:50px;right:-15px;animation-delay:1.4s;}
+        .fc3{bottom:40px;left:5px;animation-delay:2.8s;}
+        @keyframes cardF{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
 
-        /* SECTIONS */
-        .sec{padding:5.5rem 2.5rem;}
-        .sec-alt{background:var(--bg2);}
-        .w{max-width:1200px;margin:0 auto;}
-        .two{display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:center;}
-        .sh2{font-family:'Archivo',sans-serif;font-size:2.5rem;font-weight:800;margin-bottom:1rem;line-height:1.18;}
-        .stag{display:inline-block;padding:.4rem 1rem;background:linear-gradient(135deg,var(--blue),var(--blue-d));color:#fff;border-radius:50px;font-size:.76rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:1rem;}
-        .p{color:var(--muted);line-height:1.85;font-size:1rem;margin-bottom:1rem;}
+        .left-body{position:relative;z-index:1;}
+        .left-body h2{font-family:'Archivo',sans-serif;font-size:1.85rem;font-weight:900;color:#fff;line-height:1.22;margin-bottom:.85rem;}
+        .left-body h2 em{font-style:normal;color:#34D399;}
+        .left-body p{color:rgba(255,255,255,.7);line-height:1.8;margin-bottom:1.6rem;font-size:.93rem;}
+        .sp-steps{display:flex;flex-direction:column;gap:.8rem;}
+        .sp-step{display:flex;align-items:flex-start;gap:.85rem;}
+        .sp-num{width:32px;height:32px;background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.25);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:.8rem;flex-shrink:0;transition:all .3s;}
+        .sp-step:hover .sp-num{background:rgba(52,211,153,.3);border-color:#34D399;}
+        .sp-txt h4{color:#fff;font-size:.86rem;font-weight:700;margin-bottom:.15rem;}
+        .sp-txt p{color:rgba(255,255,255,.55);font-size:.76rem;line-height:1.5;}
+        .left-foot{color:rgba(255,255,255,.38);font-size:.76rem;position:relative;z-index:1;}
 
-        /* Blue box */
-        .blue-box{background:linear-gradient(145deg,#1E3A8A,#012169);border-radius:20px;padding:2.75rem;color:#fff;position:relative;overflow:hidden;}
-        .blue-box::before{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;background:rgba(255,255,255,.04);border-radius:50%;}
-        .blue-box h3{font-family:'Archivo',sans-serif;font-size:1.7rem;font-weight:800;margin-bottom:1rem;position:relative;z-index:1;}
-        .blue-box p{opacity:.86;line-height:1.8;font-size:.98rem;position:relative;z-index:1;}
+        /* RIGHT */
+        .right{display:flex;align-items:flex-start;justify-content:center;padding:2rem 2rem;overflow-y:auto;}
+        .form-box{width:100%;max-width:500px;padding-top:.5rem;}
+        .back-lnk{display:inline-flex;align-items:center;gap:.4rem;color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;transition:color .25s;}
+        .back-lnk:hover{color:var(--blue);}
 
-        /* 3-col grid */
-        .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:1.75rem;}
-        .card{background:#fff;padding:2rem;border-radius:16px;border:1px solid var(--border);transition:all .35s;position:relative;overflow:hidden;}
-        .card.acc{border-left:4px solid var(--blue);}
-        .card.cen{text-align:center;}
-        .card:hover{transform:translateY(-6px);box-shadow:0 18px 42px rgba(0,0,0,.09);border-color:var(--blue);}
-        .card h3{font-family:'Archivo',sans-serif;font-size:1.08rem;font-weight:700;margin-bottom:.65rem;}
-        .card p{color:var(--muted);font-size:.9rem;line-height:1.72;}
-        .card-ic{font-size:2.3rem;margin-bottom:.9rem;animation:iconF 3s ease-in-out infinite;}
-        .card:nth-child(2) .card-ic{animation-delay:.4s;}
-        .card:nth-child(3) .card-ic{animation-delay:.8s;}
-        @keyframes iconF{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+        /* Progress */
+        .prog{display:flex;align-items:center;margin-bottom:1.75rem;}
+        .pdot{display:flex;flex-direction:column;align-items:center;}
+        .pdot-c{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;border:2px solid var(--border);background:#fff;color:var(--muted);transition:all .3s;}
+        .pdot-c.active{background:var(--blue);border-color:var(--blue);color:#fff;}
+        .pdot-c.done{background:var(--green);border-color:var(--green);color:#fff;}
+        .pdot-l{font-size:.67rem;color:var(--muted);margin-top:.28rem;white-space:nowrap;}
+        .pline{flex:1;height:2px;background:var(--border);margin:0 .4rem;margin-bottom:1.1rem;}
 
-        /* Values dark */
-        .dark-sec{padding:5.5rem 2.5rem;background:linear-gradient(145deg,#0A0F1E,#0F2952);position:relative;overflow:hidden;}
-        .dark-sec::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:48px 48px;animation:gridShift 22s linear infinite;}
-        @keyframes gridShift{from{transform:translate(0,0)}to{transform:translate(48px,48px)}}
-        .dark-sec::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 20% 50%,rgba(59,130,246,.12),transparent 50%),radial-gradient(circle at 80% 50%,rgba(52,211,153,.09),transparent 50%);pointer-events:none;}
-        .dw{max-width:1200px;margin:0 auto;text-align:center;position:relative;z-index:1;}
-        .dw h2{font-family:'Archivo',sans-serif;font-size:2.5rem;font-weight:800;color:#fff;margin-bottom:.75rem;}
-        .dw .dsub{color:rgba(255,255,255,.65);margin-bottom:3rem;font-size:1rem;}
-        .vg{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem;text-align:left;}
-        .v{padding:1.75rem;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:14px;transition:all .32s;}
-        .v:hover{background:rgba(255,255,255,.12);transform:translateY(-4px);}
-        .vic{font-size:1.8rem;margin-bottom:.8rem;}
-        .v h3{color:#fff;font-weight:700;margin-bottom:.5rem;font-size:.98rem;}
-        .v p{color:rgba(255,255,255,.6);font-size:.84rem;line-height:1.65;}
+        .form-box h1{font-family:'Archivo',sans-serif;font-size:1.8rem;font-weight:900;margin-bottom:.38rem;}
+        .sub{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
 
-        /* Stats strip */
-        .stats-strip{padding:3rem 2.5rem;background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
-        .strip-inner{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem;text-align:center;}
-        .st{padding:1.4rem;border-radius:14px;border:1px solid var(--border);transition:all .3s;}
-        .st:hover{transform:translateY(-4px);box-shadow:0 10px 28px rgba(0,0,0,.07);border-color:var(--blue);}
-        .stn{font-family:'Archivo',sans-serif;font-size:2.6rem;font-weight:900;background:linear-gradient(135deg,#3B82F6,#1D4ED8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;margin-bottom:.35rem;}
-        .stl{color:var(--muted);font-size:.85rem;font-weight:500;}
+        .fg{margin-bottom:1.1rem;}
+        .fg label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.4rem;color:#374151;}
+        .fg input,.fg select{width:100%;padding:.8rem .95rem;border:1.5px solid var(--border);border-radius:8px;font-size:.92rem;font-family:'DM Sans',sans-serif;color:#0A0F1E;background:#fff;transition:border-color .25s,box-shadow .25s;outline:none;}
+        .fg input:focus,.fg select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.1);}
+        .fg input::placeholder{color:#94A3B8;}
+        .two{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
 
-        /* CTA */
-        .cta-sec{padding:5.5rem 2.5rem;background:linear-gradient(145deg,#EFF6FF,#ECFDF5);border-top:1px solid var(--border);}
-        .ctaw{max-width:760px;margin:0 auto;text-align:center;}
-        .ctaw h2{font-family:'Archivo',sans-serif;font-size:2.8rem;font-weight:900;color:var(--dark);margin-bottom:1rem;line-height:1.18;}
-        .ctaw p{font-size:1.12rem;color:var(--muted);margin-bottom:2.25rem;}
-        .ctab{display:flex;gap:1.1rem;justify-content:center;}
-        footer{background:#0A0F1E;color:rgba(255,255,255,.4);padding:1.75rem 2.5rem;text-align:center;font-size:.83rem;}
-        @media(max-width:960px){.two,.g3,.vg{grid-template-columns:1fr;}.nl{display:none;}.hero h1{font-size:2.5rem;}.strip-inner{grid-template-columns:1fr 1fr;}.ctab{flex-direction:column;align-items:center;}}
+        /* CHIPS */
+        .chips{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:.45rem;}
+        .chip{padding:.4rem .9rem;border:1.5px solid var(--border);border-radius:50px;font-size:.82rem;font-weight:600;cursor:pointer;transition:all .22s;background:#fff;user-select:none;}
+        .chip:hover{border-color:var(--blue);color:var(--blue);}
+        .chip.on{background:var(--blue);color:#fff;border-color:var(--blue);transform:scale(1.04);}
+        .sel-count{margin-top:.45rem;font-size:.76rem;font-weight:700;color:var(--green);}
+
+        /* ERROR */
+        .err{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:.7rem 1rem;color:#DC2626;font-size:.84rem;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;}
+
+        .terms{font-size:.79rem;color:var(--muted);margin-bottom:1.35rem;line-height:1.6;}
+        .terms a{color:var(--blue);font-weight:600;}
+        .btn-sub{width:100%;padding:1rem;background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;border-radius:9px;font-size:1rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .25s;box-shadow:0 4px 16px rgba(5,150,105,.28);}
+        .btn-sub:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 24px rgba(5,150,105,.36);}
+        .btn-sub:disabled{opacity:.6;cursor:not-allowed;}
+        .divider{display:flex;align-items:center;gap:1rem;margin:1.25rem 0;color:var(--muted);font-size:.82rem;}
+        .divider::before,.divider::after{content:'';flex:1;border-top:1px solid var(--border);}
+        .soc-btn{width:100%;padding:.78rem;border:1.5px solid var(--border);border-radius:8px;background:#fff;font-size:.89rem;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.6rem;transition:all .25s;margin-bottom:.6rem;}
+        .soc-btn:hover{border-color:var(--blue);background:var(--bg2);}
+        .si-lnk{text-align:center;margin-top:1.4rem;font-size:.88rem;color:var(--muted);}
+        .si-lnk a{color:var(--blue);font-weight:700;}
+
+        @media(max-width:900px){.page{grid-template-columns:1fr;}.left{display:none;}.right{padding:2rem 1.5rem;}.two{grid-template-columns:1fr;}}
       `}</style>
 
-      <nav className="nav">
-        <div className="nw">
-          <Link href="/" className="logo-box"><div className="logo-ic">S</div><div className="logo-nm">Sponsor<span>Path</span></div></Link>
-          <ul className="nl">
-            <li><Link href="/#features">Features</Link></li>
-            <li><Link href="/#how-it-works">How It Works</Link></li>
-            <li><Link href="/pricing">Pricing</Link></li>
-            <li><Link href="/about">About</Link></li>
-          </ul>
-          <div className="nb">
-            <Link href="/signin" className="btn btn-ghost">Sign In</Link>
-            <Link href="/get-started" className="btn btn-blue">Get Started</Link>
-          </div>
-        </div>
-      </nav>
+      <div className="page">
+        {/* LEFT */}
+        <div className="left">
+          <div className="b1 blob"/><div className="b2 blob"/><div className="b3 blob"/><div className="b4 blob"/>
+          <div className="logo-box"><div className="logo-ic">S</div><div className="logo-nm">Sponsor<span>Path</span></div></div>
 
-      <section className="hero">
-        <div className="hero-blob1"/><div className="hero-blob2"/>
-        <h1>We Built the Tool<br/><em>We Wished We Had</em></h1>
-        <p>SponsorPath was born from watching talented international professionals struggle in the UK job market — not from lack of skill, but because the system was stacked against them.</p>
-      </section>
-
-      <section className="sec">
-        <div className="w two">
-          <div className="rl">
-            <span className="stag">Our Mission</span>
-            <h2 className="sh2">Level the playing field for every UK visa candidate.</h2>
-            <p className="p">The UK job market is deeply complex for international candidates. Between decoding visa requirements, finding sponsors, tailoring resumes, and applying to hundreds of roles — it becomes a full-time job just to find a job.</p>
-            <p className="p">We built SponsorPath to change that. The SponsorPath Engine automates the entire process so talented professionals can focus on what truly matters: preparing for interviews and building their career.</p>
-            <p className="p"><strong>Our promise:</strong> Quality over quantity. Every application accurate, every resume tailored, every submission intentional. Zero fake skills. Zero spam. Zero wasted effort.</p>
-          </div>
-          <div className="rr">
-            <div className="blue-box">
-              <h3>🇬🇧 Purpose-Built for the UK</h3>
-              <p>Specifically designed for UK visa sponsorship, post-study work routes, and the Skilled Worker pathway. We understand Home Office rules and the sponsor register so you don&apos;t have to.</p>
+          <div className="illo">
+            <div className="illo-inner">
+              <div className="float-card fc1">✅ 3 Interview Invites!</div>
+              <div className="float-card fc2">📄 CV Tailored in 12s</div>
+              <div className="float-card fc3">🇬🇧 Sponsor Verified ✓</div>
+              <svg viewBox="0 0 280 220" style={{width:'100%',height:'100%',position:'absolute',top:0,left:0}}>
+                {/* Monitor */}
+                <rect x="70" y="55" width="140" height="95" rx="8" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.25)" strokeWidth="1.5"/>
+                <rect x="76" y="61" width="128" height="78" rx="4" fill="rgba(59,130,246,.3)"/>
+                {/* Screen lines */}
+                <rect x="82" y="68" width="75" height="4" rx="2" fill="rgba(255,255,255,.65)"/>
+                <rect x="82" y="76" width="55" height="3" rx="1.5" fill="rgba(255,255,255,.4)"/>
+                <rect x="82" y="83" width="65" height="3" rx="1.5" fill="rgba(255,255,255,.4)"/>
+                <rect x="82" y="90" width="45" height="3" rx="1.5" fill="rgba(255,255,255,.35)"/>
+                {/* Score badge */}
+                <rect x="155" y="108" width="38" height="14" rx="7" fill="rgba(52,211,153,.5)"/>
+                <text x="174" y="119" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="800">94%</text>
+                {/* Stand */}
+                <rect x="135" y="150" width="10" height="12" fill="rgba(255,255,255,.18)"/>
+                <rect x="115" y="162" width="50" height="5" rx="2.5" fill="rgba(255,255,255,.18)"/>
+                {/* Keyboard */}
+                <rect x="88" y="174" width="104" height="14" rx="4" fill="rgba(255,255,255,.1)" stroke="rgba(255,255,255,.18)" strokeWidth="1"/>
+                <rect x="91" y="177" width="98" height="8" rx="2" fill="rgba(255,255,255,.06)"/>
+                {/* Person */}
+                <circle cx="140" cy="35" r="14" fill="rgba(255,255,255,.18)" stroke="rgba(255,255,255,.3)" strokeWidth="1.5"/>
+                <circle cx="136" cy="31" r="3" fill="rgba(255,255,255,.5)"/>
+                <circle cx="144" cy="31" r="3" fill="rgba(255,255,255,.5)"/>
+                <path d="M133 38 Q140 43 147 38" stroke="rgba(255,255,255,.6)" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+                {/* Live pulse */}
+                <circle cx="205" cy="63" r="5" fill="#34D399" opacity=".9">
+                  <animate attributeName="r" values="5;8;5" dur="2s" repeatCount="indefinite"/>
+                  <animate attributeName="opacity" values=".9;.3;.9" dur="2s" repeatCount="indefinite"/>
+                </circle>
+                {/* Decorative arcs */}
+                <path d="M30 160 Q60 120 90 150" stroke="rgba(255,255,255,.15)" strokeWidth="1.5" fill="none" strokeDasharray="4,4"/>
+                <path d="M190 160 Q220 130 250 155" stroke="rgba(52,211,153,.2)" strokeWidth="1.5" fill="none" strokeDasharray="4,4"/>
+              </svg>
             </div>
           </div>
-        </div>
-      </section>
 
-      <section className="stats-strip">
-        <div className="strip-inner">
-          {[{n:'30K+',l:'Licensed UK Sponsors'},{n:'30%',l:'Response Rate'},{n:'5x',l:'Faster Than Manual'},{n:'0',l:'Fake Skills Added'}].map((s,i)=>(
-            <div key={s.l} className={`st rv d${i+1}`}><div className="stn">{s.n}</div><div className="stl">{s.l}</div></div>
-          ))}
+          <div className="left-body">
+            <h2>Start landing UK jobs<br/>with the <em>SponsorPath Engine.</em></h2>
+            <p>Register in 2 minutes. The engine finds jobs, tailors your CV, and applies — 24/7, automatically.</p>
+            <div className="sp-steps">
+              {[{n:'1',t:'Create your account',d:'Email & password — takes 60 seconds.'},
+                {n:'2',t:'Set your preferences',d:'Tell us your stream: DevOps, Finance...'},
+                {n:'3',t:'Upload your resume',d:'One time only. We build your Master Profile.'},
+                {n:'4',t:'Engine starts working',d:'Finds & applies to jobs automatically.'}].map(s=>(
+                <div key={s.n} className="sp-step">
+                  <div className="sp-num">{s.n}</div>
+                  <div className="sp-txt"><h4>{s.t}</h4><p>{s.d}</p></div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="left-foot"><p>Not immigration advice. © 2026 SponsorPath</p></div>
         </div>
-      </section>
 
-      <section className="sec sec-alt">
-        <div className="w">
-          <h2 className="sh2 rv" style={{textAlign:'center',marginBottom:'2.5rem'}}>The Problem We&apos;re Solving</h2>
-          <div className="g3">
-            {[{t:'Sponsorship Confusion',d:"Finding which companies hold UK sponsor licences is unreliable. Most candidates apply blindly, wasting time on roles that can't legally hire them."},{t:'Generic CVs Get Rejected',d:'Sending the same resume gives less than 5% response rates. ATS systems filter unoptimised CVs before a human ever reads them.'},{t:'Application Fatigue',d:'Manually applying to dozens of jobs daily is exhausting and demoralising. Talented candidates burn out before they find their opportunity.'}].map((c,i)=>(
-              <div key={c.t} className={`card acc rv d${i+1}`}><h3>{c.t}</h3><p>{c.d}</p></div>
-            ))}
+        {/* RIGHT */}
+        <div className="right">
+          <div className="form-box">
+            <Link href="/" className="back-lnk">← Back to home</Link>
+
+            {/* Progress */}
+            <div className="prog">
+              {[{l:'Account'},{l:'Verify'},{l:'Resume'}].map((s,i)=>(
+                <><div key={s.l} className="pdot"><div className={`pdot-c ${i===0?'active':''}`}>{i+1}</div><div className="pdot-l">{s.l}</div></div>{i<2&&<div key={`l${i}`} className="pline"/>}</>
+              ))}
+            </div>
+
+            <h1>Create Your Account</h1>
+            <p className="sub">Free to start. No credit card required.</p>
+
+            {error && <div className="err">⚠️ {error}</div>}
+
+            <div className="two">
+              <div className="fg"><label>First Name *</label><input value={form.firstName} onChange={e=>set('firstName',e.target.value)} placeholder="John"/></div>
+              <div className="fg"><label>Last Name</label><input value={form.lastName} onChange={e=>set('lastName',e.target.value)} placeholder="Smith"/></div>
+            </div>
+            <div className="fg"><label>Email Address *</label><input type="email" value={form.email} onChange={e=>set('email',e.target.value)} placeholder="you@example.com"/></div>
+            <div className="fg"><label>Password *</label><input type="password" value={form.password} onChange={e=>set('password',e.target.value)} placeholder="At least 8 characters"/></div>
+
+            <div className="fg">
+              <label>Visa Status *</label>
+              <select value={form.visaStatus} onChange={e=>set('visaStatus',e.target.value)}>
+                <option value="">Select your visa status...</option>
+                <option>Graduate Visa (PSW)</option>
+                <option>Graduate Visa (PSW) – Dependent</option>
+                <option>Skilled Worker Visa</option>
+                <option>Skilled Worker Visa – Dependent</option>
+                <option>Student Visa (need sponsorship on graduation)</option>
+                <option>British Citizen / ILR</option>
+                <option>EU Settled / Pre-Settled Status</option>
+                <option>Other</option>
+              </select>
+            </div>
+
+            <div className="fg">
+              <label>Target Career Stream * <span style={{color:'#94A3B8',fontWeight:400}}>(select all that apply)</span></label>
+              <div className="chips">
+                {STREAMS.map(s=>(
+                  <span key={s} className={`chip${streams.includes(s)?' on':''}`} onClick={()=>toggle(s)}>{s}</span>
+                ))}
+              </div>
+              {streams.length>0&&<div className="sel-count">✓ {streams.length} stream{streams.length>1?'s':''} selected</div>}
+            </div>
+
+            <div className="fg"><label>Preferred UK Location(s)</label><input value={form.locations} onChange={e=>set('locations',e.target.value)} placeholder="e.g. London, Manchester, Remote"/></div>
+
+            <p className="terms">By creating an account you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>. We never share your data with employers.</p>
+
+            <button className="btn-sub" onClick={handleSubmit} disabled={loading}>
+              {loading ? 'Creating Account...' : 'Create Account & Continue →'}
+            </button>
+
+            <div className="divider">or sign up with</div>
+            <button className="soc-btn" onClick={()=>signInWithGoogle()}>
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+              Continue with Google
+            </button>
+            <button className="soc-btn" onClick={()=>signInWithLinkedIn()}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="#0A66C2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+              Continue with LinkedIn
+            </button>
+            <div className="si-lnk">Already have an account? <Link href="/signin">Sign in</Link></div>
           </div>
         </div>
-      </section>
-
-      <section className="sec">
-        <div className="w">
-          <h2 className="sh2 rv" style={{textAlign:'center',marginBottom:'2.5rem'}}>How SponsorPath Fixes This</h2>
-          <div className="g3">
-            {[{i:'🗄️',t:'Live Sponsor Database',d:'30,000+ UK licensed sponsors tracked weekly from official government sources. Every application goes to a verified sponsor only.'},{i:'⚙️',t:'SponsorPath Engine',d:'Tailors your resume to every single job description — rewriting summaries, reordering skills, matching keywords. Completely unique every time.'},{i:'🚀',t:'Full Automation',d:'From job discovery to submission, the SponsorPath Engine runs 24/7. You focus on interviews — not the grind.'}].map((c,i)=>(
-              <div key={c.t} className={`card cen rv d${i+1}`}><div className="card-ic">{c.i}</div><h3>{c.t}</h3><p>{c.d}</p></div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="dark-sec">
-        <div className="dw">
-          <h2 className="rv">Our Values</h2>
-          <p className="dsub rv">Everything we build is guided by these principles.</p>
-          <div className="vg">
-            {[{i:'🎯',t:'Truth First',d:'We never add fake skills or fabricate experience. Your application is always a truthful representation of who you are.'},{i:'🛡️',t:'Protect Candidates',d:"We'd rather reject a poor application than submit one that damages your professional reputation."},{i:'🇬🇧',t:'UK-Focused',d:'Every feature built with UK visa rules, sponsor requirements, and employment law in mind. Specialists, not generalists.'},{i:'⚡',t:'Always Improving',d:'The SponsorPath Engine learns from outcomes — better matches, better CVs, better results every single week.'}].map((v,i)=>(
-              <div key={v.t} className={`v rv d${i+1}`}><div className="vic">{v.i}</div><h3>{v.t}</h3><p>{v.d}</p></div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="cta-sec">
-        <div className="ctaw rv">
-          <h2>Ready to Land Your UK Job?</h2>
-          <p>Let the SponsorPath Engine do the hard work while you prepare for interviews.</p>
-          <div className="ctab">
-            <Link href="/get-started" className="btn btn-blue btn-lg">Start Free Trial</Link>
-            <Link href="/pricing" className="btn btn-ghost btn-lg">View Pricing</Link>
-          </div>
-        </div>
-      </section>
-      <footer><p>© 2026 SponsorPath. Not immigration advice.</p></footer>
+      </div>
     </>
   )
 }

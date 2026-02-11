@@ -1,237 +1,309 @@
+// ════════════════════════════════════════════════════════
+// FILE PATH: src/app/page.tsx  →  localhost:3000/
+// ════════════════════════════════════════════════════════
 'use client'
+import Image from 'next/image'
 import Link from 'next/link'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { signIn, verifyOtp, signInWithGoogle, signInWithLinkedIn } from '@/lib/supabase'
+import { useEffect, useRef } from 'react'
 
-export default function SignIn() {
-  const router = useRouter()
-  const [step, setStep] = useState<'login'|'otp'>('login')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [otp, setOtp] = useState(['','','','','',''])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [timer, setTimer] = useState(300)
+export default function Home() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  const handleLogin = async () => {
-    if (!email || !password) { setError('Please enter your email and password.'); return }
-    setLoading(true); setError('')
-    const { error: err } = await signIn(email, password)
-    setLoading(false)
-    if (err) { setError(err.message.includes('Invalid') ? 'Incorrect email or password.' : err.message); return }
-    setStep('otp')
-    let t = 300
-    const interval = setInterval(() => { t--; setTimer(t); if (t <= 0) clearInterval(interval) }, 1000)
-  }
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight }
+    resize()
+    const particles: {x:number,y:number,vx:number,vy:number,r:number,o:number}[] = []
+    for (let i = 0; i < 55; i++) particles.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, vx: (Math.random()-.5)*.35, vy: (Math.random()-.5)*.35, r: Math.random()*2+.5, o: Math.random()*.4+.1 })
+    let raf: number
+    function draw() {
+      ctx!.clearRect(0,0,canvas!.width,canvas!.height)
+      particles.forEach(p => {
+        p.x += p.vx; p.y += p.vy
+        if (p.x<0) p.x=canvas!.width; if (p.x>canvas!.width) p.x=0
+        if (p.y<0) p.y=canvas!.height; if (p.y>canvas!.height) p.y=0
+        ctx!.beginPath(); ctx!.arc(p.x,p.y,p.r,0,Math.PI*2)
+        ctx!.fillStyle = `rgba(96,165,250,${p.o})`; ctx!.fill()
+      })
+      particles.forEach((a,i) => particles.slice(i+1).forEach(b => {
+        const d = Math.hypot(a.x-b.x,a.y-b.y)
+        if (d<110) { ctx!.beginPath(); ctx!.moveTo(a.x,a.y); ctx!.lineTo(b.x,b.y); ctx!.strokeStyle=`rgba(96,165,250,${.1*(1-d/110)})`; ctx!.lineWidth=.5; ctx!.stroke() }
+      }))
+      raf = requestAnimationFrame(draw)
+    }
+    draw()
+    window.addEventListener('resize', resize)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize) }
+  }, [])
 
-  const handleVerify = async () => {
-    const token = otp.join('')
-    if (token.length < 6) { setError('Please enter all 6 digits.'); return }
-    setLoading(true); setError('')
-    const { error: err } = await verifyOtp(email, token)
-    setLoading(false)
-    if (err) { setError('Invalid or expired code. Please try again.'); return }
-    router.push('/dashboard')
-  }
-
-  const handleOtpChange = (i: number, v: string) => {
-    if (!/^[0-9]?$/.test(v)) return
-    const next = [...otp]; next[i] = v; setOtp(next)
-    if (v && i < 5) (document.getElementById(`otp${i+1}`) as HTMLInputElement)?.focus()
-  }
-  const handleOtpKey = (i: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !otp[i] && i > 0) (document.getElementById(`otp${i-1}`) as HTMLInputElement)?.focus()
-  }
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const paste = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6)
-    if (paste.length === 6) setOtp(paste.split(''))
-  }
-  const fmt = (s: number) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`
+  useEffect(() => {
+    const obs = new IntersectionObserver(entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in') }), { threshold: 0.12 })
+    document.querySelectorAll('.rv,.rl,.rr').forEach(el => obs.observe(el))
+    const nav = document.getElementById('navbar')
+    const onScroll = () => nav?.classList.toggle('scrolled', window.scrollY > 10)
+    window.addEventListener('scroll', onScroll)
+    return () => { obs.disconnect(); window.removeEventListener('scroll', onScroll) }
+  }, [])
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;900&family=DM+Sans:wght@400;500;600;700&display=swap');
-        :root{--blue:#3B82F6;--blue-d:#1D4ED8;--green:#059669;--muted:#64748B;--border:#E2E8F0;--bg2:#F8FAFC;}
-        *{margin:0;padding:0;box-sizing:border-box;}
-        body{font-family:'DM Sans',sans-serif;background:var(--bg2);min-height:100vh;}
-        a{text-decoration:none;color:inherit;}
-        .page{min-height:100vh;display:grid;grid-template-columns:1fr 1fr;}
-
-        /* ── LEFT ── */
-        .left{background:linear-gradient(145deg,#1D4ED8 0%,#0A1628 100%);padding:3rem;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden;}
-        .blob{position:absolute;border-radius:50%;animation:bF 10s ease-in-out infinite;pointer-events:none;}
-        .b1{width:400px;height:400px;background:rgba(96,165,250,.1);top:-120px;right:-100px;}
-        .b2{width:450px;height:450px;background:rgba(52,211,153,.08);bottom:-150px;left:-100px;animation-delay:4s;}
-        .b3{width:200px;height:200px;background:rgba(255,255,255,.04);top:35%;right:15%;animation-delay:7s;}
-        @keyframes bF{0%,100%{transform:scale(1) translate(0,0)}40%{transform:scale(1.15) translate(20px,-15px)}70%{transform:scale(.88) translate(-12px,18px)}}
-
-        .logo-box{display:flex;align-items:center;gap:.65rem;position:relative;z-index:1;}
-        .logo-ic{width:42px;height:42px;background:linear-gradient(135deg,#3B82F6,#34D399);border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:1.3rem;font-family:'Archivo',sans-serif;animation:logoPop .8s cubic-bezier(.34,1.56,.64,1) both;}
-        @keyframes logoPop{from{opacity:0;transform:scale(.5) rotate(-10deg)}to{opacity:1;transform:scale(1) rotate(0)}}
-        .logo-nm{font-family:'Archivo',sans-serif;font-size:1.25rem;font-weight:900;color:#fff;}
-        .logo-nm span{color:#34D399;}
-
-        /* Dashboard preview */
-        .dash-prev{position:relative;z-index:1;margin:1.5rem 0;}
-        .dash-card{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:18px;padding:1.5rem;backdrop-filter:blur(10px);}
-        .dc-top{display:flex;align-items:center;gap:.5rem;margin-bottom:1.2rem;}
-        .dot-live{width:9px;height:9px;border-radius:50%;background:#34D399;animation:lPulse 2s ease-in-out infinite;}
-        @keyframes lPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 7px rgba(52,211,153,0)}}
-        .dc-top h4{color:#fff;font-size:.9rem;font-weight:700;}
-        .dc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:1rem;}
-        .dc-s{background:rgba(255,255,255,.1);border-radius:10px;padding:.8rem .5rem;text-align:center;}
-        .dc-s .n{font-family:'Archivo',sans-serif;font-size:1.5rem;font-weight:900;color:#fff;display:block;line-height:1;}
-        .dc-s .l{font-size:.62rem;color:rgba(255,255,255,.58);margin-top:.18rem;display:block;}
-        .dc-eng{display:flex;align-items:center;gap:.5rem;padding:.6rem .85rem;background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.25);border-radius:9px;}
-        .dc-eng .ep{width:7px;height:7px;border-radius:50%;background:#34D399;animation:lPulse 1.5s ease-in-out infinite;}
-        .dc-eng span{color:#6EE7B7;font-size:.78rem;font-weight:700;}
-        /* Floating notifications */
-        .notif{position:absolute;background:#fff;border-radius:10px;padding:.5rem .9rem;box-shadow:0 8px 24px rgba(0,0,0,.15);font-size:.76rem;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:.4rem;animation:nFloat 4s ease-in-out infinite;}
-        .n1{bottom:-10px;right:10px;color:#059669;animation-delay:0s;}
-        .n2{top:0;right:-5px;color:#3B82F6;animation-delay:2s;}
-        @keyframes nFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-
-        .left-body{position:relative;z-index:1;}
-        .left-body h2{font-family:'Archivo',sans-serif;font-size:1.85rem;font-weight:900;color:#fff;line-height:1.22;margin-bottom:.75rem;}
-        .left-body h2 em{font-style:normal;color:#34D399;}
-        .left-body p{color:rgba(255,255,255,.7);line-height:1.8;font-size:.92rem;}
-        .left-foot{color:rgba(255,255,255,.35);font-size:.75rem;position:relative;z-index:1;}
-
-        /* ── RIGHT ── */
-        .right{display:flex;align-items:center;justify-content:center;padding:3rem 2.5rem;}
-        .form-box{width:100%;max-width:440px;}
-        .back{display:inline-flex;align-items:center;gap:.4rem;color:var(--muted);font-size:.85rem;margin-bottom:2rem;transition:color .25s;}
-        .back:hover{color:var(--blue);}
-        .form-box h1{font-family:'Archivo',sans-serif;font-size:1.9rem;font-weight:900;margin-bottom:.4rem;color:#0A0F1E;}
-        .sub{color:var(--muted);font-size:.91rem;margin-bottom:1.7rem;}
-        .fg{margin-bottom:1.2rem;}
-        .fg label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.42rem;color:#374151;}
-        .fg input{width:100%;padding:.82rem 1rem;border:1.5px solid var(--border);border-radius:8px;font-size:.93rem;font-family:'DM Sans',sans-serif;color:#0A0F1E;background:#fff;outline:none;transition:border-color .25s,box-shadow .25s;}
-        .fg input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.1);}
-        .fg input::placeholder{color:#94A3B8;}
-        .forgot{display:flex;justify-content:flex-end;margin-top:-.7rem;margin-bottom:1.25rem;}
-        .forgot a{font-size:.84rem;color:var(--blue);font-weight:600;}
-        .err{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.22);border-radius:8px;padding:.7rem 1rem;color:#DC2626;font-size:.84rem;margin-bottom:1rem;}
-        .sec-note{background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.14);border-radius:8px;padding:.72rem 1rem;font-size:.8rem;color:var(--muted);margin-bottom:1.25rem;display:flex;align-items:flex-start;gap:.5rem;line-height:1.6;}
-        .btn-main{width:100%;padding:1rem;background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:#fff;border:none;border-radius:9px;font-size:1rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .25s;box-shadow:0 4px 16px rgba(59,130,246,.28);}
-        .btn-main:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 24px rgba(59,130,246,.36);}
-        .btn-main:disabled{opacity:.6;cursor:not-allowed;}
-        .divider{display:flex;align-items:center;gap:1rem;margin:1.35rem 0;color:var(--muted);font-size:.82rem;}
-        .divider::before,.divider::after{content:'';flex:1;border-top:1px solid var(--border);}
-        .soc{width:100%;padding:.78rem;border:1.5px solid var(--border);border-radius:8px;background:#fff;font-size:.89rem;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.6rem;transition:all .25s;margin-bottom:.6rem;}
-        .soc:hover{border-color:var(--blue);background:var(--bg2);}
-        .bot{text-align:center;margin-top:1.5rem;font-size:.88rem;color:var(--muted);}
-        .bot a{color:var(--blue);font-weight:700;}
-
-        /* OTP */
-        .otp-icon{font-size:3.2rem;margin-bottom:1.1rem;text-align:center;}
-        .otp-email{font-weight:700;color:var(--blue-d);text-align:center;margin-bottom:1.5rem;font-size:.9rem;}
-        .otp-row{display:flex;gap:.62rem;justify-content:center;margin-bottom:1.25rem;}
-        .oi{width:52px;height:58px;border:1.5px solid var(--border);border-radius:10px;font-size:1.7rem;font-weight:900;text-align:center;font-family:'Archivo',sans-serif;color:var(--blue-d);background:#fff;outline:none;transition:all .25s;}
-        .oi:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
-        .oi.has{border-color:var(--blue);background:#EFF6FF;}
-        .oi::-webkit-inner-spin-button{-webkit-appearance:none;}
-        .timer-txt{text-align:center;margin-bottom:1rem;font-size:.85rem;color:var(--muted);}
-        .timer-txt strong{color:#EF4444;}
-        .resend{text-align:center;font-size:.84rem;color:var(--muted);margin-top:.9rem;}
-        .resend button{background:none;border:none;color:var(--blue);font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:.84rem;}
-
-        @media(max-width:900px){.page{grid-template-columns:1fr;}.left{display:none;}.right{padding:2.5rem 1.5rem;}}
+        @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;900&family=DM+Sans:wght@400;500;600;700&display=swap');
+        :root{--blue:#3B82F6;--blue-d:#1D4ED8;--blue-l:#60A5FA;--green:#059669;--green-l:#34D399;--navy:#012169;--dark:#0A0F1E;--muted:#64748B;--border:#E2E8F0;--bg2:#F8FAFC;}
+        *{margin:0;padding:0;box-sizing:border-box;} html{scroll-behavior:smooth;}
+        body{font-family:'DM Sans',sans-serif;background:#fff;color:var(--dark);overflow-x:hidden;} a{text-decoration:none;color:inherit;}
+        /* reveals */
+        .rv{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease;}
+        .rl{opacity:0;transform:translateX(-36px);transition:opacity .7s ease,transform .7s ease;}
+        .rr{opacity:0;transform:translateX(36px);transition:opacity .7s ease,transform .7s ease;}
+        .rv.in,.rl.in,.rr.in{opacity:1;transform:none;}
+        .d1{transition-delay:.1s!important;}.d2{transition-delay:.2s!important;}.d3{transition-delay:.3s!important;}.d4{transition-delay:.4s!important;}.d5{transition-delay:.5s!important;}
+        /* NAV */
+        .nav{position:fixed;top:0;width:100%;background:rgba(255,255,255,.96);backdrop-filter:blur(20px);border-bottom:1px solid transparent;z-index:1000;transition:all .3s;}
+        .nav.scrolled{border-color:var(--border);box-shadow:0 2px 20px rgba(0,0,0,.07);}
+        .nw{max-width:1440px;margin:0 auto;padding:.35rem 2.5rem;display:flex;justify-content:space-between;align-items:center;}
+        /* LOGO — animated pulse on load */
+        .logo-link{display:flex;align-items:center;}
+        .logo-link img{height:82px!important;width:auto!important;display:block;animation:logoPop .8s cubic-bezier(.34,1.56,.64,1) both;}
+        @keyframes logoPop{from{opacity:0;transform:scale(.7) rotate(-5deg)}to{opacity:1;transform:scale(1) rotate(0)}}
+        .logo-link:hover img{animation:logoWiggle .5s ease;}
+        @keyframes logoWiggle{0%,100%{transform:rotate(0)}25%{transform:rotate(-3deg)}75%{transform:rotate(3deg)}}
+        .nl{display:flex;gap:2.5rem;list-style:none;}
+        .nl a{font-weight:500;font-size:.95rem;color:var(--dark);transition:color .25s;position:relative;padding-bottom:2px;}
+        .nl a::after{content:'';position:absolute;bottom:-3px;left:0;width:0;height:2px;background:var(--blue);transition:width .3s;}
+        .nl a:hover{color:var(--blue);} .nl a:hover::after{width:100%;}
+        .nb{display:flex;gap:.8rem;align-items:center;}
+        /* BUTTONS */
+        .btn{display:inline-block;padding:.72rem 1.65rem;border-radius:9px;font-weight:600;font-size:.95rem;font-family:'DM Sans',sans-serif;border:none;cursor:pointer;transition:all .25s;position:relative;overflow:hidden;}
+        .btn-ghost{background:transparent;color:var(--dark);border:1.5px solid var(--border);}
+        .btn-ghost:hover{background:var(--bg2);border-color:var(--blue);}
+        .btn-blue{background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:#fff;box-shadow:0 4px 16px rgba(59,130,246,.28);}
+        .btn-blue:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(59,130,246,.38);}
+        .btn-green{background:linear-gradient(135deg,#059669,#047857);color:#fff;box-shadow:0 4px 16px rgba(5,150,105,.28);}
+        .btn-green:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(5,150,105,.38);}
+        .btn-lg{padding:1rem 2.25rem;font-size:1.05rem;border-radius:11px;}
+        /* HERO */
+        .hero{position:relative;margin-top:88px;min-height:91vh;background:linear-gradient(145deg,#EFF6FF 0%,#F0FDF4 45%,#EFF6FF 100%);overflow:hidden;display:flex;align-items:center;}
+        .hcanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+        .blob{position:absolute;border-radius:50%;filter:blur(75px);pointer-events:none;animation:blobFloat 9s ease-in-out infinite;}
+        .b1{width:560px;height:560px;background:radial-gradient(circle,rgba(59,130,246,.14),transparent 70%);top:-120px;right:-80px;}
+        .b2{width:480px;height:480px;background:radial-gradient(circle,rgba(16,185,129,.11),transparent 70%);bottom:-80px;left:-60px;animation-delay:3s;}
+        .b3{width:280px;height:280px;background:radial-gradient(circle,rgba(139,92,246,.09),transparent 70%);top:35%;left:42%;animation-delay:6s;}
+        @keyframes blobFloat{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(25px,-18px) scale(1.04)}66%{transform:translate(-18px,25px) scale(.96)}}
+        .hw{max-width:1440px;margin:0 auto;padding:4rem 2.5rem;display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center;position:relative;z-index:1;width:100%;}
+        .badge{display:inline-flex;align-items:center;gap:.55rem;padding:.5rem 1.1rem;background:rgba(1,33,105,.07);border:1.5px solid rgba(1,33,105,.17);border-radius:50px;font-size:.83rem;font-weight:700;color:var(--navy);margin-bottom:1.5rem;animation:slideDown .8s ease both;}
+        @keyframes slideDown{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
+        .hero h1{font-family:'Archivo',sans-serif;font-size:3.8rem;font-weight:900;line-height:1.08;color:var(--dark);letter-spacing:-.03em;margin-bottom:1.25rem;animation:slideUp .9s ease .1s both;}
+        @keyframes slideUp{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+        .hero h1 .gw{background:linear-gradient(135deg,#3B82F6,#1D4ED8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+        .hero-p{font-size:1.15rem;color:var(--muted);line-height:1.82;margin-bottom:2.5rem;max-width:500px;animation:slideUp .9s ease .2s both;}
+        .hero-btns{display:flex;gap:1rem;flex-wrap:wrap;animation:slideUp .9s ease .3s both;}
+        .hero-trust{margin-top:1.75rem;display:flex;align-items:center;gap:1.2rem;color:var(--muted);font-size:.84rem;animation:slideUp .9s ease .4s both;}
+        .ti{display:flex;align-items:center;gap:.4rem;}
+        .td{width:6px;height:6px;border-radius:50%;background:var(--green);}
+        /* DASHBOARD MOCKUP */
+        .hero-vis{display:flex;justify-content:center;position:relative;}
+        .dash{width:100%;max-width:500px;background:linear-gradient(145deg,#1E3A8A,#1E2D5E);border-radius:22px;padding:2rem 1.9rem;box-shadow:0 40px 100px rgba(30,58,138,.28),0 0 0 1px rgba(255,255,255,.08);position:relative;overflow:hidden;animation:slideUp .9s ease .15s both;}
+        .dash::before{content:'';position:absolute;top:-60px;right:-60px;width:210px;height:210px;background:rgba(255,255,255,.04);border-radius:50%;}
+        .dash::after{content:'';position:absolute;bottom:-80px;left:-40px;width:250px;height:250px;background:rgba(52,211,153,.07);border-radius:50%;}
+        .dt{display:flex;align-items:center;gap:.6rem;margin-bottom:1.35rem;position:relative;z-index:1;}
+        .dlive{width:9px;height:9px;border-radius:50%;background:#34D399;animation:livePulse 2s ease-in-out infinite;}
+        @keyframes livePulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 7px rgba(52,211,153,0)}}
+        .dt h4{color:#fff;font-size:.92rem;font-weight:700;}
+        .dg{display:grid;grid-template-columns:repeat(4,1fr);gap:.68rem;margin-bottom:1.1rem;position:relative;z-index:1;}
+        .ds{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:.82rem .4rem;text-align:center;transition:transform .3s;cursor:default;}
+        .ds:hover{transform:scale(1.06);}
+        .ds .n{font-family:'Archivo',sans-serif;font-size:1.45rem;font-weight:900;color:#fff;display:block;line-height:1;}
+        .ds .l{font-size:.63rem;color:rgba(255,255,255,.58);margin-top:.2rem;display:block;}
+        .dj{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.13);border-radius:10px;padding:.8rem .95rem;display:flex;align-items:center;justify-content:space-between;margin-bottom:.58rem;position:relative;z-index:1;transition:all .3s;cursor:default;}
+        .dj:hover{background:rgba(255,255,255,.15);transform:translateX(3px);}
+        .dj h5{color:#fff;font-size:.8rem;font-weight:700;margin-bottom:.14rem;}
+        .dj p{color:rgba(255,255,255,.55);font-size:.68rem;}
+        .sc{padding:.23rem .62rem;border-radius:50px;font-size:.72rem;font-weight:700;}
+        .sg{background:rgba(52,211,153,.22);color:#6EE7B7;} .sb{background:rgba(147,197,253,.2);color:#93C5FD;}
+        .de{display:flex;align-items:center;gap:.45rem;padding:.52rem .88rem;background:rgba(52,211,153,.13);border:1px solid rgba(52,211,153,.27);border-radius:8px;position:relative;z-index:1;margin-top:.35rem;}
+        .epulse{width:7px;height:7px;background:#34D399;border-radius:50%;animation:livePulse 1.5s ease-in-out infinite;}
+        .de span{color:#6EE7B7;font-size:.74rem;font-weight:700;}
+        /* floating badges */
+        .fb{position:absolute;background:#fff;border-radius:12px;padding:.58rem .95rem;box-shadow:0 8px 28px rgba(0,0,0,.12);font-size:.78rem;font-weight:700;display:flex;align-items:center;gap:.45rem;white-space:nowrap;z-index:3;}
+        .fb1{top:-12px;right:-20px;color:var(--green);animation:fbFloat 4s ease-in-out infinite;}
+        .fb2{bottom:24px;left:-28px;color:var(--blue);animation:fbFloat 4s ease-in-out infinite;animation-delay:2s;}
+        @keyframes fbFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+        /* STATS */
+        .stats{padding:2.5rem 2.5rem;border-bottom:1px solid var(--border);}
+        .sw{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem;text-align:center;}
+        .stc{padding:1.55rem;background:#fff;border:1px solid var(--border);border-radius:14px;transition:all .35s;cursor:default;}
+        .stc:hover{transform:translateY(-5px);box-shadow:0 12px 32px rgba(0,0,0,.08);border-color:var(--blue);}
+        .stn{font-family:'Archivo',sans-serif;font-size:2.55rem;font-weight:900;background:linear-gradient(135deg,#3B82F6,#1D4ED8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;margin-bottom:.38rem;}
+        .stl{color:var(--muted);font-size:.88rem;font-weight:500;}
+        /* SECTION SHARED */
+        .stag{display:inline-block;padding:.42rem 1.1rem;background:linear-gradient(135deg,var(--blue),var(--blue-d));color:#fff;border-radius:50px;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:1.1rem;}
+        .sh2{font-family:'Archivo',sans-serif;font-size:2.6rem;font-weight:800;color:var(--dark);margin-bottom:.85rem;line-height:1.18;}
+        .ssub{font-size:1.05rem;color:var(--muted);}
+        .shead{text-align:center;max-width:660px;margin:0 auto 3.5rem;}
+        /* FEATURES */
+        .features{padding:6.5rem 2.5rem;background:linear-gradient(180deg,var(--bg2),#fff);}
+        .fg{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;}
+        .fc{background:#fff;padding:2.2rem;border-radius:18px;border:1px solid var(--border);transition:all .4s;position:relative;overflow:hidden;cursor:default;}
+        .fc::before{content:'';position:absolute;top:0;left:0;width:100%;height:4px;background:linear-gradient(90deg,var(--blue),var(--navy));transform:scaleX(0);transform-origin:left;transition:transform .4s;}
+        .fc:hover{transform:translateY(-8px);box-shadow:0 24px 50px rgba(0,0,0,.09);border-color:var(--blue);}
+        .fc:hover::before{transform:scaleX(1);}
+        .fi{width:56px;height:56px;background:linear-gradient(135deg,var(--blue),var(--navy));border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:1.2rem;animation:iconF 3s ease-in-out infinite;}
+        @keyframes iconF{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+        .fc:nth-child(2) .fi{animation-delay:.3s}.fc:nth-child(3) .fi{animation-delay:.6s}.fc:nth-child(4) .fi{animation-delay:.9s}.fc:nth-child(5) .fi{animation-delay:1.2s}.fc:nth-child(6) .fi{animation-delay:1.5s}
+        .fc h3{font-family:'Archivo',sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:.65rem;}
+        .fc p{color:var(--muted);line-height:1.72;margin-bottom:1.1rem;font-size:.92rem;}
+        .ftag{display:inline-flex;padding:.32rem .78rem;background:rgba(59,130,246,.1);color:var(--blue);border-radius:6px;font-size:.76rem;font-weight:700;}
+        /* HOW IT WORKS */
+        .hiw{padding:6.5rem 2.5rem;}
+        .steps{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;}
+        .step{text-align:center;padding:2.2rem 1.5rem;border-radius:18px;border:1px solid var(--border);background:#fff;transition:all .35s;position:relative;overflow:hidden;}
+        .step:hover{transform:translateY(-6px);box-shadow:0 20px 50px rgba(0,0,0,.09);border-color:var(--blue);}
+        .snum{width:68px;height:68px;background:#fff;border:3px solid var(--blue);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1.2rem;font-size:1.65rem;font-weight:900;font-family:'Archivo',sans-serif;color:var(--blue);box-shadow:0 6px 20px rgba(59,130,246,.18);transition:all .3s;}
+        .step:hover .snum{background:linear-gradient(135deg,var(--blue),var(--navy));color:#fff;border-color:transparent;}
+        .step h3{font-family:'Archivo',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:.65rem;}
+        .step p{color:var(--muted);font-size:.88rem;line-height:1.68;}
+        .ebadge{display:inline-flex;align-items:center;gap:.28rem;padding:.28rem .68rem;background:linear-gradient(135deg,rgba(59,130,246,.12),rgba(1,33,105,.12));border:1px solid rgba(59,130,246,.22);border-radius:50px;font-size:.7rem;font-weight:700;color:var(--navy);margin-top:.65rem;}
+        /* ENGINE */
+        .engine{padding:6rem 2.5rem;background:linear-gradient(145deg,#0A0F1E,#0F2952);position:relative;overflow:hidden;}
+        .engine::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 15% 50%,rgba(59,130,246,.14) 0%,transparent 50%),radial-gradient(circle at 85% 50%,rgba(16,185,129,.09) 0%,transparent 50%);}
+        .engine::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:48px 48px;animation:gridShift 22s linear infinite;}
+        @keyframes gridShift{from{transform:translate(0,0)}to{transform:translate(48px,48px)}}
+        .ew{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:center;position:relative;z-index:1;}
+        .et h2{font-family:'Archivo',sans-serif;font-size:2.7rem;font-weight:900;color:#fff;line-height:1.18;margin-bottom:1.2rem;}
+        .et h2 em{font-style:normal;background:linear-gradient(135deg,#60A5FA,#34D399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+        .et p{font-size:1.05rem;color:rgba(255,255,255,.76);line-height:1.85;margin-bottom:1.8rem;}
+        .egrid{display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;}
+        .ecard{padding:1.4rem;text-align:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:14px;transition:all .3s;}
+        .ecard:hover{background:rgba(255,255,255,.12);transform:scale(1.04);}
+        .ecard .n{font-family:'Archivo',sans-serif;font-size:2rem;font-weight:900;color:#60A5FA;display:block;margin-bottom:.2rem;}
+        .ecard .l{color:rgba(255,255,255,.58);font-size:.78rem;}
+        /* CTA */
+        .cta{padding:6rem 2.5rem;background:linear-gradient(145deg,#EFF6FF,#ECFDF5);border-top:1px solid var(--border);}
+        .ctaw{max-width:760px;margin:0 auto;text-align:center;}
+        .ctaw h2{font-family:'Archivo',sans-serif;font-size:2.9rem;font-weight:900;color:var(--dark);margin-bottom:1.1rem;line-height:1.18;}
+        .ctaw p{font-size:1.15rem;color:var(--muted);margin-bottom:2.5rem;}
+        .ctab{display:flex;gap:1.1rem;justify-content:center;}
+        /* FOOTER */
+        footer{background:#0A0F1E;color:rgba(255,255,255,.62);padding:3.5rem 2.5rem 1.75rem;}
+        .fw{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:4rem;margin-bottom:2.5rem;}
+        .flogo img{height:64px!important;width:auto!important;filter:brightness(0) invert(1);margin-bottom:.9rem;display:block;}
+        .fbrand p{line-height:1.75;font-size:.9rem;}
+        .fcol h4{color:#fff;font-weight:700;margin-bottom:1rem;font-size:.92rem;}
+        .fcol ul{list-style:none;} .fcol li{margin-bottom:.6rem;}
+        .fcol a{color:rgba(255,255,255,.55);font-size:.9rem;transition:color .25s;} .fcol a:hover{color:#60A5FA;}
+        .fbot{max-width:1440px;margin:0 auto;padding-top:1.75rem;border-top:1px solid rgba(255,255,255,.1);text-align:center;color:rgba(255,255,255,.35);font-size:.84rem;}
+        @media(max-width:1100px){.hw,.ew{grid-template-columns:1fr;}.hero-vis,.fb1,.fb2{display:none;}.fg,.steps{grid-template-columns:1fr 1fr;}}
+        @media(max-width:768px){.hero h1{font-size:2.6rem;}.nl{display:none;}.sw{grid-template-columns:1fr 1fr;}.fg,.steps{grid-template-columns:1fr;}.fw{grid-template-columns:1fr;gap:2rem;}.hero-btns,.ctab{flex-direction:column;align-items:flex-start;}.sh2{font-size:2rem;}}
       `}</style>
 
-      <div className="page">
-        {/* ── LEFT PANEL ── */}
-        <div className="left">
-          <div className="blob b1"/><div className="blob b2"/><div className="blob b3"/>
-          <div className="logo-box">
-            <div className="logo-ic">S</div>
-            <div className="logo-nm">Sponsor<span>Path</span></div>
+      <nav className="nav" id="navbar">
+        <div className="nw">
+          <Link href="/" className="logo-link">
+            <Image src="/logo.png" alt="SponsorPath" width={280} height={82} priority />
+          </Link>
+          <ul className="nl">
+            <li><a href="#features">Features</a></li>
+            <li><a href="#how-it-works">How It Works</a></li>
+            <li><Link href="/pricing">Pricing</Link></li>
+            <li><Link href="/about">About</Link></li>
+          </ul>
+          <div className="nb">
+            <Link href="/signin" className="btn btn-ghost">Sign In</Link>
+            <Link href="/get-started" className="btn btn-blue">Get Started</Link>
           </div>
+        </div>
+      </nav>
 
-          <div className="dash-prev" style={{position:'relative'}}>
-            <div className="notif n1">✅ Interview at Revolut booked!</div>
-            <div className="notif n2">⚡ 14 jobs applied overnight</div>
-            <div className="dash-card">
-              <div className="dc-top"><div className="dot-live"/><h4>Your Dashboard is ready</h4></div>
-              <div className="dc-stats">
-                {[{n:'12',l:'Applied Today'},{n:'3',l:'Responses'},{n:'89%',l:'Avg Match'}].map(s=>(
-                  <div key={s.l} className="dc-s"><span className="n">{s.n}</span><span className="l">{s.l}</span></div>
-                ))}
-              </div>
-              <div className="dc-eng"><div className="ep"/><span>⚡ SponsorPath Engine is actively searching for you...</span></div>
+      <section className="hero">
+        <canvas ref={canvasRef} className="hcanvas" />
+        <div className="blob b1"/><div className="blob b2"/><div className="blob b3"/>
+        <div className="hw">
+          <div>
+            <div className="badge">
+              <svg width="26" height="17" viewBox="0 0 60 36" style={{borderRadius:'3px',flexShrink:0}}>
+                <rect width="60" height="36" fill="#012169"/>
+                <path d="M0,0 L60,36 M60,0 L0,36" stroke="#fff" strokeWidth="6"/>
+                <path d="M0,0 L60,36 M60,0 L0,36" stroke="#C8102E" strokeWidth="4"/>
+                <path d="M30,0 V36 M0,18 H60" stroke="#fff" strokeWidth="10"/>
+                <path d="M30,0 V36 M0,18 H60" stroke="#C8102E" strokeWidth="6"/>
+              </svg>
+              Built for UK Visa Candidates
+            </div>
+            <h1>Land Your UK Job.<br/><span className="gw">SponsorPath Engine</span><br/>Handles the Rest.</h1>
+            <p className="hero-p">Register once. Set your career preferences. The SponsorPath Engine searches thousands of roles, tailors your resume to every JD, and auto-submits applications — so you wake up to interview requests, not job-hunting stress.</p>
+            <div className="hero-btns">
+              <Link href="/get-started" className="btn btn-green btn-lg">Get Started Free →</Link>
+              <Link href="#how-it-works" className="btn btn-ghost btn-lg">See How It Works</Link>
+            </div>
+            <div className="hero-trust">
+              <div className="ti"><div className="td"/><span>No credit card required</span></div>
+              <div className="ti"><div className="td"/><span>Free 14-day trial</span></div>
+              <div className="ti"><div className="td"/><span>Cancel anytime</span></div>
             </div>
           </div>
-
-          <div className="left-body">
-            <h2>Welcome back.<br/>Your <em>jobs are waiting.</em></h2>
-            <p>The SponsorPath Engine has been searching and applying on your behalf. Sign in to see your latest results, responses, and upcoming interviews.</p>
-          </div>
-          <div className="left-foot"><p>Not immigration advice. © 2026 SponsorPath</p></div>
-        </div>
-
-        {/* ── RIGHT PANEL ── */}
-        <div className="right">
-          <div className="form-box">
-            {step === 'login' ? (
-              <>
-                <Link href="/" className="back">← Back to home</Link>
-                <h1>Sign In</h1>
-                <p className="sub">Enter your credentials to access your dashboard.</p>
-                {error && <div className="err">⚠️ {error}</div>}
-                <div className="fg">
-                  <label>Email Address</label>
-                  <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/>
-                </div>
-                <div className="fg">
-                  <label>Password</label>
-                  <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
-                </div>
-                <div className="forgot"><a href="#">Forgot password?</a></div>
-                <div className="sec-note">🔒 We use 6-digit OTP verification to keep your account secure. You&apos;ll receive a code by email after signing in.</div>
-                <button className="btn-main" onClick={handleLogin} disabled={loading}>
-                  {loading ? 'Signing In...' : 'Continue to Verification →'}
-                </button>
-                <div className="divider">or continue with</div>
-                <button className="soc" onClick={()=>signInWithGoogle()}>
-                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                  Continue with Google
-                </button>
-                <button className="soc" onClick={()=>signInWithLinkedIn()}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="#0A66C2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-                  Continue with LinkedIn
-                </button>
-                <div className="bot">Don&apos;t have an account? <Link href="/get-started">Sign up free</Link></div>
-              </>
-            ) : (
-              <>
-                <div className="otp-icon">📱</div>
-                <h1 style={{textAlign:'center'}}>Check Your Email</h1>
-                <p className="sub" style={{textAlign:'center'}}>We sent a 6-digit code to</p>
-                <div className="otp-email">{email}</div>
-                {error && <div className="err">⚠️ {error}</div>}
-                <div className="otp-row" onPaste={handlePaste}>
-                  {otp.map((v,i)=>(
-                    <input key={i} id={`otp${i}`} className={`oi${v?' has':''}`} type="number" value={v}
-                      onChange={e=>handleOtpChange(i,e.target.value)}
-                      onKeyDown={e=>handleOtpKey(i,e)} autoFocus={i===0}/>
-                  ))}
-                </div>
-                <div className="timer-txt">Code expires in <strong>{fmt(timer)}</strong></div>
-                <div className="sec-note">🛡️ This one-time code ensures only you can access your SponsorPath account and dashboard data.</div>
-                <button className="btn-main" onClick={handleVerify} disabled={loading || otp.join('').length<6}>
-                  {loading ? 'Verifying...' : 'Verify & Open Dashboard →'}
-                </button>
-                <div className="resend">
-                  Didn&apos;t get it? <button onClick={()=>{signIn(email,password);setTimer(300)}}>Resend code</button>
-                </div>
-                <p style={{textAlign:'center',marginTop:'1rem',fontSize:'.84rem',color:'var(--muted)',cursor:'pointer'}} onClick={()=>setStep('login')}>← Back to sign in</p>
-              </>
-            )}
+          <div className="hero-vis">
+            <div style={{position:'relative'}}>
+              <div className="fb fb1">✅ 3 Interview Requests!</div>
+              <div className="fb fb2">⚡ 12 Jobs Applied Today</div>
+              <div className="dash">
+                <div className="dt"><div className="dlive"/><h4>SponsorPath Dashboard</h4></div>
+                <div className="dg">{[{n:'14',l:'Applied'},{n:'3',l:'Replies'},{n:'89%',l:'Match'},{n:'✓',l:'ATS'}].map(s=><div key={s.l} className="ds"><span className="n">{s.n}</span><span className="l">{s.l}</span></div>)}</div>
+                {[{t:'Senior DevOps Engineer',c:'Revolut · London',s:'94%',g:true},{t:'Backend Engineer',c:'Monzo · London',s:'81%',g:false},{t:'Data Engineer',c:'Wise · London',s:'88%',g:true}].map(j=>(
+                  <div key={j.t} className="dj"><div><h5>{j.t}</h5><p>🏢 {j.c} · 🇬🇧 Sponsor ✓</p></div><span className={`sc ${j.g?'sg':'sb'}`}>{j.s}</span></div>
+                ))}
+                <div className="de"><div className="epulse"/><span>SponsorPath Engine actively searching...</span></div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
+
+      <section className="stats">
+        <div className="sw">{[{n:'30%',l:'Response Rate'},{n:'5x',l:'Faster Applications'},{n:'30K+',l:'UK Sponsors'},{n:'0',l:'Fake Skills Added'}].map((s,i)=><div key={s.l} className={`stc rv d${i+1}`}><div className="stn">{s.n}</div><div className="stl">{s.l}</div></div>)}</div>
+      </section>
+
+      <section className="features" id="features">
+        <div className="shead rv"><span className="stag">Why SponsorPath</span><h2 className="sh2">Built Different. Built Better.</h2><p className="ssub">A complete application quality engine — not just a resume builder.</p></div>
+        <div className="fg">
+          {[{i:'🎯',t:'Master Profile',d:'Upload once. We extract your real experience — nothing fabricated. Your verified truth source for every single application.',g:'100% Authentic'},{i:'⚙️',t:'SponsorPath Engine',d:'Our engine reads every JD, extracts requirements, detects mismatches, and stops poor applications before they damage your reputation.',g:'Smart Matching'},{i:'✨',t:'Fresh CV Per Job',d:'Every application gets a brand-new tailored resume. Rewritten summary, reordered skills, job-specific language. Zero generic CVs.',g:'ATS-Optimised'},{i:'🇬🇧',t:'UK Visa Intelligence',d:'Detects UK sponsor licences, adapts for Graduate vs Skilled Worker visas. 30,000+ licensed sponsors tracked weekly.',g:'UK-Specific'},{i:'🛡️',t:'Application Protection',d:'Hard stop for poor matches (<40%). No fake skills ever. Daily limits. We protect your professional reputation.',g:'Quality Gates'},{i:'📊',t:'Live Dashboard',d:'Track every application in real time. Response rates, interview conversions, top companies. Full analytics.',g:'Full Transparency'}].map((f,i)=>(
+            <div key={f.t} className={`fc rv d${(i%3)+1}`}><div className="fi">{f.i}</div><h3>{f.t}</h3><p>{f.d}</p><span className="ftag">{f.g}</span></div>
+          ))}
+        </div>
+      </section>
+
+      <section className="hiw" id="how-it-works">
+        <div className="shead rv"><span className="stag">Simple Process</span><h2 className="sh2">From Sign Up to Dream Job</h2><p className="ssub">One registration. Zero manual work. Maximum results.</p></div>
+        <div className="steps">
+          {[{n:'1',t:'Register & Set Preferences',d:'Sign up and tell us your visa status, target stream — DevOps, Engineering, Finance — and preferred UK locations.',e:false},{n:'2',t:'Upload Your Resume',d:'Upload your CV. The SponsorPath Engine checks ATS standards and builds your verified Master Profile automatically.',e:true},{n:'3',t:'Engine Finds Your Jobs',d:'SponsorPath Engine searches job boards and company career pages daily, filtering by UK sponsor licence status.',e:true},{n:'4',t:'Resume Matched to JD',d:'For every matched role, your resume is completely rewritten and tailored to that specific job description. Fresh CV every time.',e:true},{n:'5',t:'Applications Auto-Submitted',d:'SponsorPath Engine fills forms, answers screening questions, and submits your application directly to employers.',e:true},{n:'6',t:'Track & Win Interviews',d:'Monitor every application in your dashboard. Get notified of responses. Focus on interviews — not job hunting.',e:false}].map((s,i)=>(
+            <div key={s.n} className={`step rv d${(i%3)+1}`}><div className="snum">{s.n}</div><h3>{s.t}</h3><p>{s.d}</p>{s.e&&<div className="ebadge">⚡ SponsorPath Engine</div>}</div>
+          ))}
+        </div>
+      </section>
+
+      <section className="engine">
+        <div className="ew">
+          <div className="et rl"><h2>Powered by the<br/><em>SponsorPath Engine</em></h2><p>Our proprietary engine does what no job board can — reads your profile, understands your visa needs, searches thousands of jobs, tailors your resume for each one, and submits applications on your behalf. All automatically. All accurately. All day, every day.</p><Link href="/get-started" className="btn btn-blue btn-lg">Start Free Trial</Link></div>
+          <div className="egrid rr">{[{n:'30K+',l:'UK Sponsors Tracked'},{n:'24/7',l:'Continuous Search'},{n:'<30s',l:'CV Per Job'},{n:'100%',l:'ATS Pass Rate'}].map(s=><div key={s.l} className="ecard"><span className="n">{s.n}</span><span className="l">{s.l}</span></div>)}</div>
+        </div>
+      </section>
+
+      <section className="cta">
+        <div className="ctaw rv"><h2>Ready to Stop Wasting Applications?</h2><p>Let the SponsorPath Engine do the hard work while you prepare for interviews.</p><div className="ctab"><Link href="/get-started" className="btn btn-blue btn-lg">Start Free Trial</Link><Link href="/about" className="btn btn-ghost btn-lg">Learn More</Link></div></div>
+      </section>
+
+      <footer>
+        <div className="fw">
+          <div className="fbrand"><div className="flogo"><Image src="/logo.png" alt="SponsorPath" width={240} height={64}/></div><p>The SponsorPath Engine handles job search, resume tailoring, and application submission for UK visa candidates. Quality over quantity. Every single time.</p></div>
+          <div className="fcol"><h4>Product</h4><ul><li><a href="#features">Features</a></li><li><Link href="/pricing">Pricing</Link></li><li><a href="#how-it-works">How It Works</a></li><li><a>Roadmap</a></li></ul></div>
+          <div className="fcol"><h4>Resources</h4><ul><li><a>Blog</a></li><li><a>UK Sponsor List</a></li><li><a>Visa Guides</a></li><li><a>Help Centre</a></li></ul></div>
+          <div className="fcol"><h4>Company</h4><ul><li><Link href="/about">About Us</Link></li><li><a>Contact</a></li><li><a>Privacy</a></li><li><a>Terms</a></li></ul></div>
+        </div>
+        <div className="fbot"><p>© 2026 SponsorPath. Built with ❤️ for UK job seekers. Not immigration advice.</p></div>
+      </footer>
     </>
   )
 }

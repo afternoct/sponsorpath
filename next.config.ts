@@ -1,8 +1,14 @@
-import type { NextConfig } from "next";
+// ════════════════════════════════════════════════════════════════
+// FILE:  next.config.ts
+// WHERE: Project ROOT (same folder as package.json)
+// REPLACES your existing next.config.ts
+// ════════════════════════════════════════════════════════════════
+import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  reactCompiler: true,
-};
+  images: {
+    unoptimized: true,
+  },
+}
 
-export default nextConfig;
+export default nextConfig

@@ -1,307 +1,154 @@
-// lib/supabase.ts
-// ─────────────────────────────────────────────────────────────────────────────
-// SponsorPath — Supabase Integration Layer
-// Handles: Auth (email + OTP), User Profiles, ATS Scoring, Job Search
-// ─────────────────────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+// FILE PATH: src/lib/supabase.ts
+// ════════════════════════════════════════════════════════
+// Install: npm install @supabase/ssr @supabase/supabase-js
+// OTP REMOVED — users go directly to dashboard after login
 
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export const supabase = createBrowserClient(supabaseUrl, supabaseKey)
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-
-// ═══════════════════════════════════════════════════════════════
-// AUTH — Sign Up
-// ═══════════════════════════════════════════════════════════════
-export async function signUp(email: string, password: string, userData: {
-  firstName: string
-  lastName: string
-  visaStatus: string
-  targetStreams: string[]
-  preferredLocations: string
+// ─── AUTH ────────────────────────────────────────────────
+export async function signUp(email: string, password: string, meta: {
+  firstName: string; lastName: string; visaStatus: string
+  targetStreams: string[]; preferredLocations: string
 }) {
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
+  return supabase.auth.signUp({ email, password,
     options: {
-      data: {
-        first_name: userData.firstName,
-        last_name: userData.lastName,
-        visa_status: userData.visaStatus,
-        target_streams: userData.targetStreams,
-        preferred_locations: userData.preferredLocations,
-      },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL||'http://localhost:3000'}/dashboard`,
+      data: { first_name: meta.firstName, last_name: meta.lastName,
+        visa_status: meta.visaStatus, target_streams: meta.targetStreams,
+        preferred_locations: meta.preferredLocations }
     }
   })
-  return { data, error }
 }
 
-
-// ═══════════════════════════════════════════════════════════════
-// AUTH — Sign In with OTP (email + password → sends OTP)
-// ═══════════════════════════════════════════════════════════════
 export async function signIn(email: string, password: string) {
-  // Step 1: verify password
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) return { data: null, error }
-
-  // Step 2: send OTP to email for 2FA
-  const { error: otpError } = await supabase.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false }
-  })
-
-  return { data, error: otpError }
+  return supabase.auth.signInWithPassword({ email, password })
 }
 
+export async function signOut() { return supabase.auth.signOut() }
 
-// ═══════════════════════════════════════════════════════════════
-// AUTH — Verify OTP
-// ═══════════════════════════════════════════════════════════════
-export async function verifyOtp(email: string, token: string) {
-  const { data, error } = await supabase.auth.verifyOtp({
-    email,
-    token,
-    type: 'email',
-  })
-  return { data, error }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-// AUTH — Sign In with Google
-// ═══════════════════════════════════════════════════════════════
 export async function signInWithGoogle() {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard` }
-  })
-  return { data, error }
+  return supabase.auth.signInWithOAuth({ provider: 'google',
+    options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL||'http://localhost:3000'}/dashboard` }})
 }
 
-
-// ═══════════════════════════════════════════════════════════════
-// AUTH — Sign In with LinkedIn
-// ═══════════════════════════════════════════════════════════════
 export async function signInWithLinkedIn() {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'linkedin_oidc',
-    options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard` }
-  })
-  return { data, error }
+  return supabase.auth.signInWithOAuth({ provider: 'linkedin_oidc',
+    options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL||'http://localhost:3000'}/dashboard` }})
 }
 
-
-// ═══════════════════════════════════════════════════════════════
-// AUTH — Sign Out
-// ═══════════════════════════════════════════════════════════════
-export async function signOut() {
-  const { error } = await supabase.auth.signOut()
-  return { error }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-// AUTH — Get Current Session
-// ═══════════════════════════════════════════════════════════════
-export async function getSession() {
-  const { data: { session }, error } = await supabase.auth.getSession()
-  return { session, error }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-// MASTER PROFILE — Save / Get
-// ═══════════════════════════════════════════════════════════════
-export async function saveMasterProfile(userId: string, profile: {
-  fullName: string
-  email: string
-  currentRole: string
-  yearsExperience: number
-  visaStatus: string
-  targetStreams: string[]
-  preferredLocations: string
-  skills: string[]
-  education: object[]
-  experience: object[]
-  atsScore: number
-}) {
-  const { data, error } = await supabase
-    .from('master_profiles')
-    .upsert({
-      user_id: userId,
-      ...profile,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id' })
-    .select()
-  return { data, error }
-}
-
+// ─── MASTER PROFILE ──────────────────────────────────────
 export async function getMasterProfile(userId: string) {
-  const { data, error } = await supabase
-    .from('master_profiles')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-  return { data, error }
+  return supabase.from('master_profiles').select('*').eq('user_id', userId).single()
+}
+export async function saveMasterProfile(userId: string, profile: Partial<MasterProfile>) {
+  return supabase.from('master_profiles').upsert(
+    { user_id: userId, ...profile, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }).select().single()
 }
 
-
-// ═══════════════════════════════════════════════════════════════
-// ATS SCORING — Analyse resume text
-// ═══════════════════════════════════════════════════════════════
-export interface ATSResult {
-  score: number          // 0-100
-  grade: 'Excellent' | 'Good' | 'Fair' | 'Poor'
-  checks: {
-    label: string
-    status: 'pass' | 'warn' | 'fail'
-    message: string
-  }[]
-  keywords: string[]
-  suggestions: string[]
-}
-
-export function analyseATS(resumeText: string, jobDescription?: string): ATSResult {
-  const text = resumeText.toLowerCase()
-  const checks: ATSResult['checks'] = []
-  let score = 0
-
-  // Check: Contact info
-  const hasEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(resumeText)
-  const hasPhone = /(\+44|0)[0-9\s\-]{10,}/i.test(resumeText)
-  const hasLinkedIn = /linkedin\.com/i.test(resumeText)
-  if (hasEmail && hasPhone) { score += 15; checks.push({label:'Contact Info',status:'pass',message:'Email and phone number found'}) }
-  else { checks.push({label:'Contact Info',status:'warn',message:'Add complete contact details'}) }
-  if (hasLinkedIn) { score += 5; checks.push({label:'LinkedIn URL',status:'pass',message:'LinkedIn profile detected'}) }
-  else { checks.push({label:'LinkedIn URL',status:'fail',message:'Add your LinkedIn URL for 20% more responses'}) }
-
-  // Check: Sections
-  const sections = ['experience', 'education', 'skills', 'summary', 'profile']
-  const foundSections = sections.filter(s => text.includes(s))
-  if (foundSections.length >= 4) { score += 20; checks.push({label:'Resume Structure',status:'pass',message:'All key sections present'}) }
-  else if (foundSections.length >= 2) { score += 10; checks.push({label:'Resume Structure',status:'warn',message:`Add missing sections: ${sections.filter(s=>!text.includes(s)).join(', ')}`}) }
-  else { checks.push({label:'Resume Structure',status:'fail',message:'Resume missing key sections'}) }
-
-  // Check: Measurable achievements
-  const hasMetrics = /[0-9]+%|£[0-9]+|\$[0-9]+|[0-9]+ (users|clients|projects|team|members|months|years|hours)/i.test(resumeText)
-  if (hasMetrics) { score += 20; checks.push({label:'Quantified Achievements',status:'pass',message:'Measurable results found — great for ATS'}) }
-  else { checks.push({label:'Quantified Achievements',status:'warn',message:'Add numbers: reduced costs by 30%, led team of 8, etc.'}) }
-
-  // Check: Action verbs
-  const actionVerbs = ['led','managed','built','developed','delivered','improved','reduced','increased','designed','implemented','automated','deployed','architected','created','launched']
-  const verbsFound = actionVerbs.filter(v => text.includes(v))
-  if (verbsFound.length >= 5) { score += 15; checks.push({label:'Action Verbs',status:'pass',message:`Strong action verbs: ${verbsFound.slice(0,4).join(', ')}`}) }
-  else { checks.push({label:'Action Verbs',status:'warn',message:'Start bullet points with strong action verbs'}) }
-
-  // Check: Length
-  const wordCount = resumeText.split(/\s+/).length
-  if (wordCount >= 300 && wordCount <= 700) { score += 10; checks.push({label:'Resume Length',status:'pass',message:`${wordCount} words — ideal length`}) }
-  else if (wordCount < 300) { checks.push({label:'Resume Length',status:'warn',message:`Only ${wordCount} words — add more detail`}) }
-  else { score += 5; checks.push({label:'Resume Length',status:'warn',message:`${wordCount} words — consider trimming to 600`}) }
-
-  // Check: Skills section
-  const techSkills = ['javascript','typescript','python','java','react','node','aws','azure','gcp','kubernetes','docker','sql','ci/cd','git','terraform','linux']
-  const skillsFound = techSkills.filter(s => text.includes(s))
-  if (skillsFound.length >= 4) { score += 15; checks.push({label:'Technical Skills',status:'pass',message:`${skillsFound.length} tech skills detected`}) }
-  else { checks.push({label:'Technical Skills',status:'warn',message:'Expand your skills section with relevant keywords'}) }
-
-  // Job description keyword matching
-  const keywords: string[] = []
-  if (jobDescription) {
-    const jdWords = jobDescription.toLowerCase().match(/\b[a-z]{4,}\b/g) || []
-    const unique = [...new Set(jdWords)].filter(w => !['with','that','this','from','have','will','your','they'].includes(w))
-    const matched = unique.filter(w => text.includes(w))
-    keywords.push(...matched.slice(0, 10))
-    const matchPct = (matched.length / Math.max(unique.length, 1)) * 100
-    if (matchPct >= 60) score += 10
-  }
-
-  const grade: ATSResult['grade'] = score >= 80 ? 'Excellent' : score >= 65 ? 'Good' : score >= 45 ? 'Fair' : 'Poor'
-  const suggestions = checks.filter(c=>c.status!=='pass').map(c=>c.message)
-
-  return { score: Math.min(score, 100), grade, checks, keywords, suggestions }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-// JOB APPLICATIONS — Save
-// ═══════════════════════════════════════════════════════════════
-export async function saveApplication(userId: string, application: {
-  jobTitle: string
-  company: string
-  location: string
-  matchScore: number
-  jobBoardUrl: string
-  status: 'Applied' | 'Viewed' | 'Interview' | 'Rejected'
-  resumeVersion: string
-}) {
-  const { data, error } = await supabase
-    .from('applications')
-    .insert({
-      user_id: userId,
-      ...application,
-      applied_at: new Date().toISOString()
-    })
-    .select()
-  return { data, error }
-}
-
+// ─── APPLICATIONS ────────────────────────────────────────
 export async function getApplications(userId: string) {
-  const { data, error } = await supabase
-    .from('applications')
-    .select('*')
-    .eq('user_id', userId)
+  return supabase.from('applications').select('*').eq('user_id', userId)
     .order('applied_at', { ascending: false })
-  return { data, error }
+}
+export async function saveApplication(userId: string, app: Partial<Application>) {
+  return supabase.from('applications').insert({ user_id: userId, ...app }).select().single()
+}
+export async function updateApplicationStatus(id: string, status: string) {
+  return supabase.from('applications').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
 }
 
+// ─── NOTIFICATIONS ───────────────────────────────────────
+export async function getNotifications(userId: string) {
+  return supabase.from('notifications').select('*').eq('user_id', userId)
+    .order('created_at', { ascending: false }).limit(30)
+}
+export async function markNotificationRead(id: string) {
+  return supabase.from('notifications').update({ read: true }).eq('id', id)
+}
 
-// ═══════════════════════════════════════════════════════════════
-// DATABASE SCHEMA (run in Supabase SQL editor)
-// ═══════════════════════════════════════════════════════════════
-/*
--- Master Profiles table
-CREATE TABLE master_profiles (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
-  full_name TEXT,
-  email TEXT,
-  current_role TEXT,
-  years_experience INT,
-  visa_status TEXT,
-  target_streams TEXT[],
-  preferred_locations TEXT,
-  skills TEXT[],
-  education JSONB DEFAULT '[]',
-  experience JSONB DEFAULT '[]',
-  ats_score INT DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+// ─── ENGINE PREFERENCES ──────────────────────────────────
+export async function getEnginePrefs(userId: string) {
+  return supabase.from('engine_preferences').select('*').eq('user_id', userId).single()
+}
+export async function saveEnginePrefs(userId: string, prefs: Partial<EnginePreferences>) {
+  return supabase.from('engine_preferences').upsert(
+    { user_id: userId, ...prefs, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }).select().single()
+}
 
--- Applications table
-CREATE TABLE applications (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  job_title TEXT NOT NULL,
-  company TEXT NOT NULL,
-  location TEXT,
-  match_score INT,
-  job_board_url TEXT,
-  status TEXT DEFAULT 'Applied',
-  resume_version TEXT,
-  applied_at TIMESTAMPTZ DEFAULT NOW()
-);
+// ─── ATS ENGINE ──────────────────────────────────────────
+export interface ATSResult {
+  score: number; grade: 'Excellent'|'Good'|'Fair'|'Poor'
+  checks: { label: string; status: 'pass'|'warn'|'fail'; message: string }[]
+  suggestions: string[]; keywords: string[]
+}
 
--- Enable Row Level Security
-ALTER TABLE master_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
+export function analyseATS(text: string, jd = ''): ATSResult {
+  const t = text.toLowerCase(); const checks: ATSResult['checks'] = []; let score = 0
+  const add = (label: string, ok: boolean, warn: boolean, pass: string, w: string, fail = '') => {
+    if (ok) { score += 15; checks.push({label, status:'pass', message:pass}) }
+    else if (warn) { score += 5; checks.push({label, status:'warn', message:w}) }
+    else { checks.push({label, status:'fail', message: fail||w}) }
+  }
+  const hasEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text)
+  const hasPhone = /(\+44|0)[0-9\s\-]{9,}/i.test(text)
+  if (hasEmail && hasPhone) { score += 15; checks.push({label:'Contact Info', status:'pass', message:'Email and phone found'}) }
+  else checks.push({label:'Contact Info', status:'warn', message:'Add email and phone number'})
+  if (/linkedin\.com/i.test(text)) { score += 5; checks.push({label:'LinkedIn URL', status:'pass', message:'LinkedIn detected'}) }
+  else checks.push({label:'LinkedIn URL', status:'fail', message:'Add LinkedIn URL — 20% more responses'})
+  const secs = ['experience','education','skills','summary','profile']
+  const found = secs.filter(s => t.includes(s))
+  if (found.length >= 4) { score += 20; checks.push({label:'Resume Structure', status:'pass', message:'All key sections present'}) }
+  else if (found.length >= 2) { score += 10; checks.push({label:'Resume Structure', status:'warn', message:`Add missing sections`}) }
+  else checks.push({label:'Resume Structure', status:'fail', message:'Missing key sections'})
+  if (/[0-9]+%|£[0-9]+|[0-9]+ (users|clients|projects|team)/i.test(text))
+    { score += 20; checks.push({label:'Quantified Results', status:'pass', message:'Measurable results found'}) }
+  else checks.push({label:'Quantified Results', status:'warn', message:'Add metrics: reduced costs 30%...'})
+  const verbs = ['led','built','developed','delivered','improved','reduced','increased','designed','implemented','automated','deployed','managed']
+  const vf = verbs.filter(v => t.includes(v))
+  if (vf.length >= 5) { score += 15; checks.push({label:'Action Verbs', status:'pass', message:`Strong verbs: ${vf.slice(0,3).join(', ')}`}) }
+  else checks.push({label:'Action Verbs', status:'warn', message:'Start bullets with action verbs'})
+  const words = text.split(/\s+/).length
+  if (words >= 300 && words <= 700) { score += 10; checks.push({label:'Length', status:'pass', message:`${words} words — ideal`}) }
+  else if (words < 300) checks.push({label:'Length', status:'warn', message:`Only ${words} words — add detail`})
+  else { score += 5; checks.push({label:'Length', status:'warn', message:`${words} words — consider trimming`}) }
+  const tech = ['javascript','typescript','python','java','react','node','aws','azure','gcp','kubernetes','docker','sql','terraform','linux','git']
+  const sf = tech.filter(s => t.includes(s))
+  if (sf.length >= 4) { score += 15; checks.push({label:'Tech Skills', status:'pass', message:`${sf.length} skills detected`}) }
+  else checks.push({label:'Tech Skills', status:'warn', message:'Expand technical skills'})
+  const keywords: string[] = []
+  if (jd) {
+    const jdW = [...new Set((jd.toLowerCase().match(/\b[a-z]{4,}\b/g)||[])
+      .filter(w => !['with','that','this','from','have','will','your','they'].includes(w)))]
+    keywords.push(...jdW.filter(w => t.includes(w)).slice(0,12))
+  }
+  const grade: ATSResult['grade'] = score >= 80 ? 'Excellent' : score >= 65 ? 'Good' : score >= 45 ? 'Fair' : 'Poor'
+  return { score: Math.min(score,100), grade, checks, suggestions: checks.filter(c=>c.status!=='pass').map(c=>c.message), keywords }
+}
 
--- Policies: users can only see their own data
-CREATE POLICY "Users own their profile" ON master_profiles FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "Users own their applications" ON applications FOR ALL USING (auth.uid() = user_id);
-*/
+// ─── TYPES ───────────────────────────────────────────────
+export interface MasterProfile {
+  id?: string; user_id?: string; full_name: string; email: string
+  phone?: string; linkedin_url?: string; current_role: string
+  years_experience: number; visa_status: string; target_streams: string[]
+  preferred_locations: string; skills: string[]; education: object[]
+  experience: object[]; raw_resume_text?: string; ats_score: number
+  ats_grade: string; profile_complete: boolean
+}
+export interface Application {
+  id?: string; user_id?: string; job_title: string; company: string
+  location: string; job_url?: string; job_board?: string; match_score: number
+  status: 'Applied'|'Viewed'|'Interview'|'Offered'|'Rejected'
+  resume_used?: string; sponsor_verified: boolean; auto_applied: boolean; applied_at?: string
+}
+export interface EnginePreferences {
+  user_id?: string; max_apps_per_day: number; min_match_score: number
+  preferred_locations: string[]; target_streams: string[]; job_boards: string[]
+  auto_submit: boolean; email_alerts: boolean; engine_active: boolean
+}
