@@ -1,27 +1,58 @@
 // ════════════════════════════════════════════════════════
 // FILE PATH: src/app/signin/page.tsx  →  localhost:3000/signin
-// OTP REMOVED — logs in directly to /dashboard
 // ════════════════════════════════════════════════════════
+// Handles: wrong password, unconfirmed email (most common issue),
+// and offers to resend confirmation email if needed.
 'use client'
 import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { signIn, signInWithGoogle, signInWithLinkedIn } from '@/lib/supabase'
+import { signIn, signInWithGoogle, signInWithLinkedIn, supabase } from '@/lib/supabase'
 
 export default function SignIn() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [resending, setResending] = useState(false)
+  const [error, setError]       = useState('')
+  const [errorType, setErrorType] = useState<'wrong'|'unconfirmed'|''>('')
+  const [resent, setResent]     = useState(false)
 
   const handleLogin = async () => {
     if (!email || !password) { setError('Please enter your email and password.'); return }
-    setLoading(true); setError('')
-    const { error: err } = await signIn(email, password)
+    setLoading(true); setError(''); setErrorType('')
+    const { data, error: err } = await signIn(email, password)
     setLoading(false)
-    if (err) { setError('Incorrect email or password. Please try again.'); return }
-    router.push('/dashboard')
+
+    if (!err) {
+      router.push('/dashboard')
+      return
+    }
+
+    // Supabase error messages for unconfirmed accounts:
+    // "Email not confirmed" or "Invalid login credentials"
+    const msg = err.message.toLowerCase()
+    if (msg.includes('email not confirmed') || msg.includes('not confirmed')) {
+      setErrorType('unconfirmed')
+      setError('Your email address has not been confirmed yet.')
+    } else if (msg.includes('invalid login credentials') || msg.includes('invalid credentials')) {
+      // Could be wrong password OR unconfirmed — check if user exists
+      setErrorType('unconfirmed')
+      setError('Login failed. If you just registered, please confirm your email first.')
+    } else {
+      setErrorType('wrong')
+      setError(err.message)
+    }
+  }
+
+  const resendConfirmation = async () => {
+    if (!email) { setError('Enter your email address above first.'); return }
+    setResending(true)
+    const { error: err } = await supabase.auth.resend({ type: 'signup', email })
+    setResending(false)
+    if (err) { setError('Could not resend: ' + err.message); return }
+    setResent(true)
   }
 
   return (
@@ -72,7 +103,18 @@ export default function SignIn() {
         .fg input::placeholder{color:#94A3B8;}
         .frgt{display:flex;justify-content:flex-end;margin:-0.5rem 0 1.2rem;}
         .frgt a{font-size:.84rem;color:var(--blue);font-weight:600;}
-        .err{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.22);border-radius:8px;padding:.7rem 1rem;color:#DC2626;font-size:.84rem;margin-bottom:1rem;}
+
+        /* Error styles */
+        .err-box{border-radius:10px;padding:.85rem 1rem;font-size:.84rem;margin-bottom:1rem;}
+        .err-wrong{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.22);color:#DC2626;}
+        .err-unconfirmed{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);color:#92400E;}
+        .err-box .err-title{font-weight:700;margin-bottom:.3rem;display:flex;align-items:center;gap:.4rem;}
+        .err-box .err-msg{font-size:.82rem;margin-bottom:.7rem;line-height:1.55;}
+        .resend-btn{display:inline-flex;align-items:center;gap:.4rem;background:rgba(245,158,11,.12);border:1.5px solid rgba(245,158,11,.35);color:#B45309;padding:.45rem .9rem;border-radius:7px;font-size:.8rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .25s;}
+        .resend-btn:hover:not(:disabled){background:rgba(245,158,11,.2);}
+        .resend-btn:disabled{opacity:.55;cursor:not-allowed;}
+        .resent-badge{display:inline-flex;align-items:center;gap:.4rem;background:rgba(5,150,105,.1);border:1px solid rgba(5,150,105,.2);color:#059669;padding:.45rem .9rem;border-radius:7px;font-size:.8rem;font-weight:700;}
+
         .btn{width:100%;padding:1rem;background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:#fff;border:none;border-radius:9px;font-size:1rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .25s;box-shadow:0 4px 16px rgba(59,130,246,.28);}
         .btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 24px rgba(59,130,246,.36);}
         .btn:disabled{opacity:.6;cursor:not-allowed;}
@@ -105,19 +147,47 @@ export default function SignIn() {
           </div>
           <div className="lf"><p>Not immigration advice. © 2026 SponsorPath</p></div>
         </div>
+
         <div className="right">
           <div className="box">
             <Link href="/" className="back">← Back to home</Link>
             <h1>Sign In</h1>
             <p className="sub">Access your dashboard and application tracker.</p>
-            {error && <div className="err">⚠️ {error}</div>}
+
+            {/* ── UNCONFIRMED EMAIL ERROR ── */}
+            {error && errorType === 'unconfirmed' && (
+              <div className="err-box err-unconfirmed">
+                <div className="err-title">⚠️ Email not confirmed</div>
+                <div className="err-msg">
+                  Your account exists but your email hasn't been verified yet.
+                  Check your inbox for a confirmation email from Supabase and click the link inside.
+                </div>
+                {resent ? (
+                  <span className="resent-badge">✅ Confirmation email sent! Check your inbox.</span>
+                ) : (
+                  <button className="resend-btn" onClick={resendConfirmation} disabled={resending}>
+                    {resending ? '⏳ Sending...' : '📧 Resend confirmation email'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ── WRONG PASSWORD ERROR ── */}
+            {error && errorType === 'wrong' && (
+              <div className="err-box err-wrong">
+                <div className="err-title">⚠️ Sign in failed</div>
+                <div className="err-msg">{error}</div>
+              </div>
+            )}
+
             <div className="fg">
               <label>Email Address</label>
               <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/>
             </div>
             <div className="fg">
               <label>Password</label>
-              <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
+              <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
+                placeholder="Your password" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
             </div>
             <div className="frgt"><a href="#">Forgot password?</a></div>
             <button className="btn" onClick={handleLogin} disabled={loading}>

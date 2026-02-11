@@ -134,12 +134,27 @@ export function analyseATS(text: string, jd = ''): ATSResult {
 
 // ─── TYPES ───────────────────────────────────────────────
 export interface MasterProfile {
-  id?: string; user_id?: string; full_name: string; email: string
-  phone?: string; linkedin_url?: string; current_role: string
-  years_experience: number; visa_status: string; target_streams: string[]
-  preferred_locations: string; skills: string[]; education: object[]
-  experience: object[]; raw_resume_text?: string; ats_score: number
-  ats_grade: string; profile_complete: boolean
+  id?: string; user_id?: string
+  // Personal
+  full_name: string; email: string; phone?: string
+  linkedin_url?: string; current_role: string
+  uk_address?: string; uk_postcode?: string
+  // Experience & Visa
+  years_experience: string     // e.g. "3–5 years"
+  visa_status: string; visa_expiry?: string
+  // Salary
+  salary_type?: 'annual'|'day' // annual = £/year, day = £/day
+  salary_min?: number; salary_max?: number
+  // Job prefs
+  target_streams: string[]; preferred_locations: string
+  // CV
+  skills: string[]; education: object[]; experience: object[]
+  raw_resume_text?: string
+  // ATS
+  ats_score: number; ats_grade: string
+  ats_checks?: object[]; ats_suggestions?: string[]
+  // Meta
+  profile_complete: boolean; created_at?: string; updated_at?: string
 }
 export interface Application {
   id?: string; user_id?: string; job_title: string; company: string

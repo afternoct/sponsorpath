@@ -203,3 +203,31 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- ─────────────────────────────────────────
+-- MIGRATION: Add IR35 + contract type columns to job_cache
+-- Run this if you already ran schema.sql previously
+-- ─────────────────────────────────────────
+ALTER TABLE job_cache ADD COLUMN IF NOT EXISTS contract_type TEXT DEFAULT 'permanent';
+ALTER TABLE job_cache ADD COLUMN IF NOT EXISTS ir35_status   TEXT DEFAULT 'permanent';
+ALTER TABLE job_cache ADD COLUMN IF NOT EXISTS posted_days_ago INT DEFAULT 7;
+ALTER TABLE job_cache ADD COLUMN IF NOT EXISTS match_score   INT DEFAULT 0;
+
+-- Index for fast IR35 filtering
+CREATE INDEX IF NOT EXISTS idx_job_cache_ir35     ON job_cache(ir35_status);
+CREATE INDEX IF NOT EXISTS idx_job_cache_contract ON job_cache(contract_type);
+
+-- ─────────────────────────────────────────
+-- MIGRATION v2: New profile fields
+-- Run in Supabase → SQL Editor
+-- Safe to re-run (IF NOT EXISTS on all)
+-- ─────────────────────────────────────────
+ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS visa_expiry    DATE;
+ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS uk_address     TEXT;
+ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS uk_postcode    TEXT;
+ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS salary_type    TEXT DEFAULT 'annual';
+ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS salary_min     INT;
+ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS salary_max     INT;
+
+-- years_experience already exists as INT, upgrade to TEXT for "1–2 years" format
+ALTER TABLE master_profiles ALTER COLUMN years_experience TYPE TEXT USING years_experience::TEXT;
