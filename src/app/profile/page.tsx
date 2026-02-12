@@ -1,358 +1,192 @@
+// ============================================================
+// FILE: src/app/profile/page.tsx
+// ============================================================
 'use client'
-// ═══════════════════════════════════════════════════════════════════
-// PROFILE PAGE - Auto-filled forms from CV extraction
-// ═══════════════════════════════════════════════════════════════════
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Sidebar from '@/components/Sidebar'
 import { supabase, getProfile, saveProfile, calculateProfileCompletion } from '@/lib/supabase'
 
 export default function ProfilePage() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>({})
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [pct, setPct] = useState(0)
+  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/signin'); return }
-      setUser(session.user)
-      
       const { data } = await getProfile(session.user.id)
-      if (data) {
-        setProfile(data)
-      }
+      if (data) { setProfile(data); setPct(data.completion_pct||0) }
+      setLoading(false)
+      setTimeout(()=>setVisible(true),50)
     })
   }, [router])
 
+  const set = (k:string,v:string) => setProfile((p:any)=>({...p,[k]:v}))
+
   const handleSave = async () => {
-    if (!user) return
     setSaving(true)
-    setSaved(false)
-
-    try {
-      await saveProfile(user.id, profile)
-      await calculateProfileCompletion(user.id)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-    } catch (e) {
-      console.error(e)
-      alert('Save failed')
-    } finally {
-      setSaving(false)
-    }
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+    const pctCalc = calculateProfileCompletion(profile)
+    await saveProfile(session.user.id, {...profile, completion_pct:pctCalc, profile_complete: pctCalc>=80})
+    setPct(pctCalc)
+    setSaving(false); setSaved(true)
+    setTimeout(()=>setSaved(false), 2500)
   }
 
-  const updateField = (field: string, value: any) => {
-    setProfile((prev: any) => ({ ...prev, [field]: value }))
-  }
+  const inp = "width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;font-family:'DM Sans',sans-serif;color:#0f172a;background:#fff;outline:none;transition:border .2s;"
+  const lbl = "display:block;font-size:12.5px;font-weight:700;color:#374151;margin-bottom:6px;letter-spacing:.1px;"
+  const fg = "margin-bottom:18px;"
 
-  const completionPct = profile?.completion_pct || 0
-  const missingFields = profile?.missing_fields || []
+  if (loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#f0f4f8'}}><div style={{width:40,height:40,border:'3px solid #e2e8f0',borderTopColor:'#4f8ef7',borderRadius:'50%',animation:'spin 1s linear infinite'}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        *{margin:0;padding:0;box-sizing:border-box;}
-        body{font-family:'Inter',sans-serif;background:#F1F5F9;}
-        .page{max-width:1400px;margin:0 auto;padding:40px 24px;}
-        
-        .page-header{margin-bottom:32px;}
-        .page-header h1{font-size:32px;font-weight:900;color:#0F172A;margin-bottom:8px;}
-        .page-header p{font-size:16px;color:#64748B;}
-        
-        .completion-banner{background:linear-gradient(135deg,#EFF6FF,#DBEAFE);border:2px solid rgba(59,130,246,.2);border-radius:12px;padding:24px;margin-bottom:32px;}
-        .completion-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
-        .completion-title{font-size:18px;font-weight:800;color:#0F172A;}
-        .completion-pct{font-size:32px;font-weight:900;background:linear-gradient(135deg,#3B82F6,#8B5CF6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-        .completion-bar{height:12px;background:rgba(59,130,246,.1);border-radius:20px;overflow:hidden;}
-        .completion-fill{height:100%;background:linear-gradient(90deg,#3B82F6,#8B5CF6);border-radius:20px;transition:width .8s ease;}
-        .missing-fields{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;}
-        .missing-badge{padding:6px 12px;background:rgba(239,68,68,.1);color:#B91C1C;border-radius:6px;font-size:12px;font-weight:700;}
-        
-        .grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;}
-        .card{background:#fff;border-radius:16px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
-        .card-title{font-size:20px;font-weight:800;margin-bottom:20px;color:#0F172A;}
-        .card-desc{font-size:14px;color:#64748B;margin-bottom:24px;line-height:1.6;}
-        
-        .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
-        .form-group{display:flex;flex-direction:column;gap:8px;}
-        .form-label{font-size:13px;font-weight:700;color:#64748B;}
-        .form-input{padding:12px 16px;border:2px solid #E2E8F0;border-radius:8px;font-size:15px;font-family:inherit;transition:all .2s;background:#fff;}
-        .form-input:focus{outline:none;border-color:#3B82F6;background:#F8FAFC;}
-        .form-select{padding:12px 16px;border:2px solid #E2E8F0;border-radius:8px;font-size:15px;font-family:inherit;background:#fff;cursor:pointer;}
-        .form-select:focus{outline:none;border-color:#3B82F6;}
-        
-        .save-btn{width:100%;padding:16px;background:linear-gradient(135deg,#3B82F6,#1E40AF);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 4px 12px rgba(59,130,246,.3);transition:all .2s;margin-top:24px;}
-        .save-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 6px 16px rgba(59,130,246,.4);}
-        .save-btn:disabled{opacity:.5;cursor:not-allowed;}
-        .save-btn.saved{background:linear-gradient(135deg,#10B981,#047857);}
-        
-        .info-box{background:rgba(59,130,246,.05);border:1px solid rgba(59,130,246,.15);border-radius:8px;padding:16px;font-size:13px;color:#1E40AF;line-height:1.6;margin-bottom:24px;}
-        .info-box strong{color:#1E3A8A;}
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Sora:wght@700;800&display=swap');
+        @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes progress{from{width:0}to{width:var(--w)}}
+        *{margin:0;padding:0;box-sizing:border-box;}body{font-family:'DM Sans',sans-serif;background:#f0f4f8;}
+        .layout{display:flex;min-height:100vh;}
+        .main{margin-left:230px;flex:1;padding:30px 34px;opacity:0;transition:opacity .3s;}
+        .main.v{opacity:1;}
+        input:focus,select:focus,textarea:focus{border-color:#4f8ef7!important;box-shadow:0 0 0 3px rgba(79,142,247,.1);}
       `}</style>
-
-      <div className="page">
-        <div className="page-header">
-          <h1>My Profile</h1>
-          <p>Your profile is auto-filled when you upload a CV. Complete all fields for best results.</p>
-        </div>
-
-        <div className="completion-banner">
-          <div className="completion-header">
-            <div className="completion-title">Profile Completion</div>
-            <div className="completion-pct">{completionPct}%</div>
+      <div className="layout">
+        <Sidebar/>
+        <main className={`main${visible?' v':''}`}>
+          <div style={{marginBottom:28}}>
+            <div style={{fontFamily:'Sora,sans-serif',fontSize:26,fontWeight:800,color:'#0f172a',letterSpacing:'-.5px'}}>My Profile</div>
+            <div style={{fontSize:14,color:'#64748b',marginTop:4}}>Your profile is auto-filled when you upload a CV. Complete all fields for best results.</div>
           </div>
-          <div className="completion-bar">
-            <div className="completion-fill" style={{width: `${completionPct}%`}}/>
+
+          {/* COMPLETION BAR */}
+          <div style={{background:'#fff',border:'1.5px solid #e8edf3',borderRadius:14,padding:'20px 24px',marginBottom:24,boxShadow:'0 2px 8px rgba(0,0,0,.04)',animation:'fadeUp .4s ease both'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+              <div style={{fontWeight:800,fontSize:15,color:'#0f172a'}}>Profile Completion</div>
+              <div style={{fontFamily:'Sora,sans-serif',fontSize:22,fontWeight:800,color:'#4f8ef7'}}>{pct}%</div>
+            </div>
+            <div style={{background:'#f0f4f8',borderRadius:50,height:8,overflow:'hidden'}}>
+              <div style={{height:'100%',borderRadius:50,background:'linear-gradient(90deg,#4f8ef7,#a78bfa)',width:`${pct}%`,transition:'width .8s cubic-bezier(.4,0,.2,1)',animation:'progress 1s ease both'} as any}/>
+            </div>
+            {pct < 80 && <div style={{fontSize:12,color:'#94a3b8',marginTop:10}}>Complete your profile to unlock all engine features. {80-pct}% more needed.</div>}
           </div>
-          {missingFields.length > 0 && (
-            <div className="missing-fields">
-              <span style={{fontSize:'12px',color:'#64748B',fontWeight:700}}>Missing:</span>
-              {missingFields.map((field: string) => (
-                <span key={field} className="missing-badge">
-                  {field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
 
-        <div className="grid">
-          {/* MASTER PROFILE */}
-          <div className="card">
-            <h3 className="card-title">👤 Master Profile</h3>
-            <p className="card-desc">
-              Used by the engine for every application. Auto-filled when you upload your CV.
-            </p>
-
-            <div className="info-box">
-              <strong>Auto-fill working:</strong> Upload a CV in the Resume & ATS tab and these fields will be automatically populated with data extracted from your CV.
-            </div>
-
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Full Name</label>
-                <input
-                  className="form-input"
-                  value={profile.full_name || ''}
-                  onChange={e => updateField('full_name', e.target.value)}
-                  placeholder="John Smith"
-                />
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+            {/* MASTER PROFILE */}
+            <div style={{background:'#fff',border:'1.5px solid #e8edf3',borderRadius:14,padding:'24px',boxShadow:'0 2px 8px rgba(0,0,0,.04)',animation:'fadeUp .4s ease .1s both'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                <span style={{fontSize:18}}>👤</span>
+                <div style={{fontFamily:'Sora,sans-serif',fontSize:17,fontWeight:800,color:'#0f172a'}}>Master Profile</div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Email</label>
-                <input
-                  className="form-input"
-                  type="email"
-                  value={profile.email || ''}
-                  onChange={e => updateField('email', e.target.value)}
-                  placeholder="john@example.com"
-                />
-              </div>
-            </div>
+              <div style={{fontSize:13,color:'#64748b',marginBottom:20}}>Used by the engine for every application. Auto-filled when you upload your CV.</div>
 
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Phone</label>
-                <input
-                  className="form-input"
-                  value={profile.phone || ''}
-                  onChange={e => updateField('phone', e.target.value)}
-                  placeholder="+44 7700 000000"
-                />
+              <div style={{background:'#eff6ff',border:'1.5px solid #dbeafe',borderRadius:10,padding:'12px 16px',marginBottom:20}}>
+                <div style={{fontSize:13,color:'#1e40af',lineHeight:1.6}}><b>Auto-fill working:</b> Upload a CV in the Resume & ATS tab and these fields will be automatically populated with data extracted from your CV.</div>
               </div>
-              <div className="form-group">
-                <label className="form-label">LinkedIn URL</label>
-                <input
-                  className="form-input"
-                  value={profile.linkedin_url || ''}
-                  onChange={e => updateField('linkedin_url', e.target.value)}
-                  placeholder="https://linkedin.com/in/..."
-                />
+
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+                {[{k:'full_name',l:'Full Name',p:'John Smith'},{k:'email',l:'Email',p:'john@example.com',t:'email'},{k:'phone',l:'Phone',p:'+44 7700 000000'},{k:'linkedin_url',l:'LinkedIn URL',p:'https://linkedin.com/in/...'}].map(f=>(
+                  <div key={f.k} style={{marginBottom:0}}>
+                    <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>{f.l}</label>
+                    <input type={f.t||'text'} value={profile[f.k]||''} onChange={e=>set(f.k,e.target.value)} placeholder={f.p}
+                      style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}/>
+                  </div>
+                ))}
               </div>
-            </div>
 
-            <div className="form-group">
-              <label className="form-label">Visa Status</label>
-              <select
-                className="form-select"
-                value={profile.visa_status || ''}
-                onChange={e => updateField('visa_status', e.target.value)}
-              >
-                <option value="">Select...</option>
-                <option value="Graduate Visa (PSW)">Graduate Visa (PSW)</option>
-                <option value="Skilled Worker Visa">Skilled Worker Visa</option>
-                <option value="Student Visa">Student Visa</option>
-                <option value="British Citizen / ILR">British Citizen / ILR</option>
-                <option value="EU Settled Status">EU Settled Status</option>
-              </select>
-            </div>
-
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Visa Expiry Date</label>
-                <input
-                  className="form-input"
-                  type="date"
-                  value={profile.visa_expiry || ''}
-                  onChange={e => updateField('visa_expiry', e.target.value)}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">UK Postcode</label>
-                <input
-                  className="form-input"
-                  value={profile.uk_postcode || ''}
-                  onChange={e => updateField('uk_postcode', e.target.value)}
-                  placeholder="E1 6AN"
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Full UK Address</label>
-              <input
-                className="form-input"
-                value={profile.uk_address || ''}
-                onChange={e => updateField('uk_address', e.target.value)}
-                placeholder="123 High Street, London E1 6AN"
-              />
-            </div>
-
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Salary Type</label>
-                <select
-                  className="form-select"
-                  value={profile.salary_type || 'annual'}
-                  onChange={e => updateField('salary_type', e.target.value)}
-                >
-                  <option value="annual">Annual (£/year)</option>
-                  <option value="day">Day Rate (£/day)</option>
+              <div style={{marginTop:14}}>
+                <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>Visa Status</label>
+                <select value={profile.visa_status||''} onChange={e=>set('visa_status',e.target.value)} style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}>
+                  <option value="">Select...</option>
+                  {['Skilled Worker Visa','Graduate Visa','Student Visa','British Citizen','ILR','EU Settled Status','Visitor Visa','Other'].map(v=><option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
-              <div className="form-group">
-                <label className="form-label">Location Preference</label>
-                <input
-                  className="form-input"
-                  value={profile.location_city || ''}
-                  onChange={e => updateField('location_city', e.target.value)}
-                  placeholder="London"
-                />
+
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:14}}>
+                <div>
+                  <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>Visa Expiry Date</label>
+                  <input type="date" value={profile.visa_expiry||''} onChange={e=>set('visa_expiry',e.target.value)} style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}/>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>UK Postcode</label>
+                  <input type="text" value={profile.uk_postcode||''} onChange={e=>set('uk_postcode',e.target.value)} placeholder="E1 6AN" style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}/>
+                </div>
+              </div>
+              <div style={{marginTop:14}}>
+                <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>Full UK Address</label>
+                <textarea value={profile.uk_address||''} onChange={e=>set('uk_address',e.target.value)} placeholder="123 High Street, London, E1 6AN" rows={2} style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none',resize:'vertical'}}/>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:14}}>
+                <div>
+                  <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>Min Salary (£)</label>
+                  <input type="number" value={profile.salary_min||''} onChange={e=>set('salary_min',e.target.value)} placeholder="50000" style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}/>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>Max Salary (£)</label>
+                  <input type="number" value={profile.salary_max||''} onChange={e=>set('salary_max',e.target.value)} placeholder="80000" style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}/>
+                </div>
               </div>
             </div>
 
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">
-                  Min. Salary {profile.salary_type === 'day' ? '(£/day)' : '(£/year)'}
-                </label>
-                <input
-                  className="form-input"
-                  type="number"
-                  value={profile.salary_min || ''}
-                  onChange={e => updateField('salary_min', parseInt(e.target.value))}
-                  placeholder={profile.salary_type === 'day' ? '400' : '50000'}
-                />
+            {/* JOB PREFERENCES */}
+            <div>
+              <div style={{background:'#fff',border:'1.5px solid #e8edf3',borderRadius:14,padding:'24px',boxShadow:'0 2px 8px rgba(0,0,0,.04)',animation:'fadeUp .4s ease .15s both',marginBottom:16}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                  <span style={{fontSize:18}}>⚙️</span>
+                  <div style={{fontFamily:'Sora,sans-serif',fontSize:17,fontWeight:800,color:'#0f172a'}}>Job Preferences</div>
+                </div>
+                <div style={{fontSize:13,color:'#64748b',marginBottom:20}}>Tell the engine what you are looking for.</div>
+
+                {[
+                  {k:'target_roles',l:'Target Roles (comma separated)',p:'Software Engineer, DevOps Engineer'},
+                  {k:'location_city',l:'Preferred City',p:'London'},
+                ].map(f=>(
+                  <div key={f.k} style={{marginBottom:14}}>
+                    <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>{f.l}</label>
+                    <input value={profile[f.k]||''} onChange={e=>set(f.k,e.target.value)} placeholder={f.p} style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}/>
+                  </div>
+                ))}
+
+                {[
+                  {k:'remote_pref',l:'Remote Preference',opts:['Any','Remote Only','Hybrid','On-site']},
+                  {k:'radius_km',l:'Search Radius',opts:['10 km','25 km','50 km','100 km','Nationwide']},
+                  {k:'notice_period',l:'Notice Period',opts:['Immediate','1 week','2 weeks','1 month','2 months','3 months']},
+                  {k:'salary_type',l:'Contract Type',opts:['Permanent','Contract','Either']},
+                ].map(f=>(
+                  <div key={f.k} style={{marginBottom:14}}>
+                    <label style={{display:'block',fontSize:12.5,fontWeight:700,color:'#374151',marginBottom:6}}>{f.l}</label>
+                    <select value={profile[f.k]||''} onChange={e=>set(f.k,e.target.value)} style={{width:'100%',padding:'10px 14px',border:'1.5px solid #e2e8f0',borderRadius:9,fontSize:14,fontFamily:'DM Sans,sans-serif',color:'#0f172a',background:'#fff',outline:'none'}}>
+                      <option value="">Select...</option>
+                      {f.opts.map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                ))}
               </div>
-              <div className="form-group">
-                <label className="form-label">
-                  Max. Salary {profile.salary_type === 'day' ? '(£/day)' : '(£/year)'}
-                </label>
-                <input
-                  className="form-input"
-                  type="number"
-                  value={profile.salary_max || ''}
-                  onChange={e => updateField('salary_max', parseInt(e.target.value))}
-                  placeholder={profile.salary_type === 'day' ? '700' : '80000'}
-                />
+
+              <div style={{background:'linear-gradient(135deg,#fffbeb,#fef3c7)',border:'1.5px solid #fde68a',borderRadius:14,padding:'18px 20px',animation:'fadeUp .4s ease .2s both'}}>
+                <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
+                  <span>✨</span>
+                  <div style={{fontSize:13.5,fontWeight:800,color:'#92400e'}}>Auto-fill Tip</div>
+                </div>
+                <div style={{fontSize:13,color:'#78350f',lineHeight:1.65}}>Most of these fields are automatically extracted when you upload your CV. Just review and adjust as needed.</div>
               </div>
-            </div>
 
-            <button
-              className={`save-btn ${saved ? 'saved' : ''}`}
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : saved ? '✅ Saved Successfully' : 'Save Profile'}
-            </button>
-          </div>
-
-          {/* ENGINE PREFERENCES */}
-          <div className="card">
-            <h3 className="card-title">⚙️ Job Preferences</h3>
-            <p className="card-desc">
-              Tell the engine what you're looking for.
-            </p>
-
-            <div className="form-group">
-              <label className="form-label">Target Roles (comma separated)</label>
-              <input
-                className="form-input"
-                value={profile.target_roles?.join(', ') || ''}
-                onChange={e => updateField('target_roles', e.target.value.split(',').map((s: string) => s.trim()))}
-                placeholder="Software Engineer, DevOps Engineer"
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Remote Preference</label>
-              <select
-                className="form-select"
-                value={profile.remote_pref || 'any'}
-                onChange={e => updateField('remote_pref', e.target.value)}
+              <button
+                onClick={handleSave} disabled={saving}
+                style={{width:'100%',marginTop:16,padding:'13px',background:saved?'linear-gradient(135deg,#10b981,#059669)':'linear-gradient(135deg,#4f8ef7,#3b6fd4)',color:'#fff',border:'none',borderRadius:11,fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all .3s',boxShadow:saved?'0 4px 12px rgba(16,185,129,.3)':'0 4px 12px rgba(79,142,247,.3)'}}
               >
-                <option value="any">Any</option>
-                <option value="office">Office Only</option>
-                <option value="hybrid">Hybrid</option>
-                <option value="remote">Remote Only</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Search Radius (km)</label>
-              <select
-                className="form-select"
-                value={profile.radius_km || 50}
-                onChange={e => updateField('radius_km', parseInt(e.target.value))}
-              >
-                <option value="25">25 km</option>
-                <option value="50">50 km</option>
-                <option value="100">100 km</option>
-                <option value="200">200 km (nationwide)</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Notice Period</label>
-              <select
-                className="form-select"
-                value={profile.notice_period || ''}
-                onChange={e => updateField('notice_period', e.target.value)}
-              >
-                <option value="">Select...</option>
-                <option value="Immediate">Immediate</option>
-                <option value="1 week">1 week</option>
-                <option value="2 weeks">2 weeks</option>
-                <option value="1 month">1 month</option>
-                <option value="2 months">2 months</option>
-                <option value="3 months">3 months</option>
-              </select>
-            </div>
-
-            <div style={{background:'rgba(16,185,129,.05)',border:'1px solid rgba(16,185,129,.15)',borderRadius:'8px',padding:'16px',marginTop:'24px'}}>
-              <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
-                <span style={{fontSize:'20px'}}>✨</span>
-                <span style={{fontSize:'14px',fontWeight:800,color:'#047857'}}>Auto-fill Tip</span>
-              </div>
-              <p style={{fontSize:'13px',color:'#065F46',lineHeight:1.6}}>
-                Most of these fields are automatically extracted when you upload your CV. Just review and adjust as needed.
-              </p>
+                {saving?'Saving...':saved?'✓ Profile Saved!':'Save Profile'}
+              </button>
             </div>
           </div>
-        </div>
+        </main>
       </div>
     </>
   )

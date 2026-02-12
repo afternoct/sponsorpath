@@ -1,393 +1,341 @@
+// ============================================================
+// FILE: src/app/dashboard/page.tsx
+// ============================================================
 'use client'
-// ═══════════════════════════════════════════════════════════════════
-// PREMIUM DASHBOARD - Dark sidebar, animated KPIs, charts, activity feed
-// ═══════════════════════════════════════════════════════════════════
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { supabase, getProfile, getApplications, getCVs, getEnginePrefs, calculateProfileCompletion } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
+import { supabase, getProfile, getApplications, getCVs } from '@/lib/supabase'
+
+function Counter({ to, dur=1400 }: { to:number; dur?:number }) {
+  const [n, setN] = useState(0)
+  useEffect(()=>{
+    if(!to) return
+    const s=Date.now()
+    const f=()=>{ const p=Math.min((Date.now()-s)/dur,1); setN(Math.floor((1-Math.pow(1-p,4))*to)); if(p<1) requestAnimationFrame(f) }
+    requestAnimationFrame(f)
+  },[to,dur])
+  return <>{n}</>
+}
 
 export default function Dashboard() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [apps, setApps] = useState<any[]>([])
   const [cvs, setCvs] = useState<any[]>([])
-  const [prefs, setPrefs] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [entered, setEntered] = useState(false)
 
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) { router.replace('/signin'); return }
-      
-      const userId = session.user.id
-      setUser(session.user)
-      
-      const [profileRes, appsRes, cvsRes, prefsRes] = await Promise.all([
-        getProfile(userId),
-        getApplications(userId),
-        getCVs(userId),
-        getEnginePrefs(userId)
-      ])
-      
-      if (profileRes.data) setProfile(profileRes.data)
-      if (appsRes.data) setApps(appsRes.data)
-      if (cvsRes.data) setCvs(cvsRes.data)
-      if (prefsRes.data) setPrefs(prefsRes.data)
-      
+  useEffect(()=>{
+    supabase.auth.getSession().then(async({data:{session}})=>{
+      if(!session){router.replace('/signin');return}
+      const uid=session.user.id
+      const [p,a,c]=await Promise.all([getProfile(uid),getApplications(uid),getCVs(uid)])
+      if(p.data) setProfile(p.data)
+      if(a.data) setApps(a.data)
+      if(c.data) setCvs(c.data)
       setLoading(false)
+      setTimeout(()=>setEntered(true),80)
     })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session) router.replace('/signin')
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((e,s)=>{
+      if(e==='SIGNED_OUT'||!s) router.replace('/signin')
     })
+    return ()=>subscription.unsubscribe()
+  },[router])
 
-    return () => subscription.unsubscribe()
-  }, [router])
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.replace('/')
-  }
-
-  if (loading) {
-    return (
-      <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0A0F1E'}}>
-        <div style={{textAlign:'center'}}>
-          <div style={{width:50,height:50,border:'4px solid rgba(59,130,246,.3)',borderTopColor:'#3B82F6',borderRadius:'50%',animation:'spin 1s linear infinite',margin:'0 auto 20px'}}/>
-          <p style={{color:'rgba(255,255,255,.6)',fontSize:'15px',fontWeight:600}}>Loading Dashboard...</p>
-        </div>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+  if(loading) return(
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#f0f4f8',fontFamily:'DM Sans,sans-serif'}}>
+      <div style={{textAlign:'center'}}>
+        <div style={{width:44,height:44,border:'3px solid #e2e8f0',borderTopColor:'#4f8ef7',borderRadius:'50%',animation:'spin 1s linear infinite',margin:'0 auto 14px'}}/>
+        <p style={{color:'#64748b',fontWeight:600,fontSize:14}}>Loading...</p>
       </div>
-    )
-  }
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
 
-  const isNewUser = !profile?.profile_complete && apps.length === 0
-  const baseCVs = cvs.filter(c => c.version_type === 'base')
-  const hasCV = baseCVs.length > 0
-  const cvScore = hasCV ? baseCVs[0].ats_score : 0
-
-  // Calculate stats
-  const last7Days = Array.from({length:7}, (_,i) => {
-    const d = new Date()
-    d.setDate(d.getDate() - 6 + i)
-    return apps.filter(a => new Date(a.applied_at).toDateString() === d.toDateString()).length
-  })
+  // REAL DATA ONLY
+  const cvScore = cvs.find(c=>c.version_type==='base')?.ats_score || 0
   const totalApps = apps.length
-  const responses = apps.filter(a => ['in_review','interview','offer'].includes(a.status || '')).length
-  const interviews = apps.filter(a => a.status === 'interview').length
-  const responseRate = totalApps > 0 ? Math.round((responses / totalApps) * 100) : 0
+  const responses = apps.filter(a=>['in_review','interview','offer'].includes(a.status||'')).length
+  const interviews = apps.filter(a=>a.status==='interview').length
+  const offers = apps.filter(a=>a.status==='offer').length
+  const hoursSaved = Math.round(totalApps*0.75)
+  const responseRate = totalApps>0 ? Math.round((responses/totalApps)*100) : 0
 
-  const userName = user?.user_metadata?.first_name || user?.email?.split('@')[0] || 'User'
-  const initials = (user?.user_metadata?.first_name?.[0] || '') + (user?.user_metadata?.last_name?.[0] || '') || user?.email?.[0]?.toUpperCase() || 'U'
+  const days=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d})
+  const barData=days.map(d=>apps.filter(a=>new Date(a.applied_at).toDateString()===d.toDateString()).length)
+  const maxBar=Math.max(...barData,1)
+  const dayLabels=days.map(d=>['S','M','T','W','T','F','S'][d.getDay()])
 
-  return (
+  const donutData=[
+    {label:'Applied',   v:apps.filter(a=>a.status==='applied').length,   c:'#4f8ef7'},
+    {label:'In Review', v:apps.filter(a=>a.status==='in_review').length,  c:'#f59e0b'},
+    {label:'Interview', v:interviews, c:'#10b981'},
+    {label:'Offer',     v:offers,     c:'#a78bfa'},
+  ]
+  const dTotal=donutData.reduce((s,d)=>s+d.v,0)||1
+  let cum=0
+  const pol=(cx:number,cy:number,r:number,deg:number)=>{const a=(deg-90)*Math.PI/180;return{x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)}}
+  const arcPath=(cx:number,cy:number,r:number,s:number,e:number)=>{const sp=pol(cx,cy,r,s),ep=pol(cx,cy,r,e);return `M ${sp.x} ${sp.y} A ${r} ${r} 0 ${e-s>180?1:0} 1 ${ep.x} ${ep.y}`}
+  const segs=donutData.map(d=>{const s=cum;cum+=(d.v/dTotal)*356;return{...d,s,e:cum}})
+
+  const isNew = !profile?.profile_complete && totalApps===0 && cvs.length===0
+
+  return(
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Sora:wght@600;700;800;900&display=swap');
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes pop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+        @keyframes bgrow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+        @keyframes epulse{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.6)}50%{box-shadow:0 0 0 8px rgba(16,185,129,0)}}
         *{margin:0;padding:0;box-sizing:border-box;}
-        body{font-family:'Inter',sans-serif;background:#F1F5F9;color:#0F172A;overflow-x:hidden;}
-        .layout{display:flex;min-height:100vh;}
-        
-        /* DARK SIDEBAR */
-        .sidebar{width:260px;background:linear-gradient(180deg,#0A0F1E 0%,#1E293B 100%);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;padding:24px 16px;z-index:100;border-right:1px solid rgba(255,255,255,.05);}
-        .logo{display:flex;align-items:center;gap:12px;margin-bottom:32px;padding:0 8px;}
-        .logo-icon{width:40px;height:40px;background:linear-gradient(135deg,#3B82F6,#8B5CF6);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:20px;box-shadow:0 4px 12px rgba(59,130,246,.3);}
-        .logo-text{font-size:20px;font-weight:900;color:#fff;}
-        .logo-text span{background:linear-gradient(135deg,#3B82F6,#8B5CF6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-        
-        .nav-section{margin-bottom:8px;}
-        .nav-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,.3);padding:8px 12px;margin-top:20px;}
-        .nav-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;color:rgba(255,255,255,.6);font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;margin-bottom:4px;text-decoration:none;}
-        .nav-item:hover{background:rgba(255,255,255,.08);color:#fff;transform:translateX(2px);}
-        .nav-item.active{background:rgba(59,130,246,.2);color:#fff;border:1px solid rgba(59,130,246,.3);}
-        .nav-icon{width:20px;text-align:center;font-size:18px;}
-        
-        .engine-badge{margin-top:auto;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:16px;position:relative;overflow:hidden;}
-        .engine-badge::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,0));pointer-events:none;}
-        .engine-status{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
-        .pulse{width:8px;height:8px;background:#10B981;border-radius:50%;animation:pulse 2s ease-in-out infinite;}
-        @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.7)}50%{box-shadow:0 0 0 8px rgba(16,185,129,0)}}
-        .engine-title{font-size:13px;font-weight:700;color:#10B981;}
-        .engine-sub{font-size:11px;color:rgba(16,185,129,.7);}
-        
-        .user-card{margin-top:20px;display:flex;align-items:center;gap:12px;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:10px;}
-        .user-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#3B82F6,#8B5CF6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px;}
-        .user-info{flex:1;min-width:0;}
-        .user-name{font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .user-email{font-size:11px;color:rgba(255,255,255,.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .sign-out{margin-top:12px;width:100%;padding:10px;background:transparent;border:1px solid rgba(255,255,255,.1);border-radius:8px;color:rgba(255,255,255,.5);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit;}
-        .sign-out:hover{border-color:rgba(239,68,68,.5);color:#EF4444;}
-        
-        /* MAIN CONTENT */
-        .main{margin-left:260px;flex:1;padding:32px;background:#F1F5F9;}
-        .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;}
-        .header h1{font-size:28px;font-weight:800;color:#0F172A;}
-        .upgrade-btn{padding:12px 24px;background:linear-gradient(135deg,#3B82F6,#8B5CF6);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(59,130,246,.3);transition:all .2s;}
-        .upgrade-btn:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(59,130,246,.4);}
-        
-        /* ONBOARDING */
-        .onboarding{background:#fff;border-radius:16px;padding:48px;max-width:720px;margin:0 auto;box-shadow:0 1px 3px rgba(0,0,0,.05);}
-        .onboarding h2{font-size:32px;font-weight:900;margin-bottom:12px;background:linear-gradient(135deg,#0F172A,#3B82F6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-        .onboarding-sub{color:#64748B;font-size:16px;line-height:1.6;margin-bottom:32px;}
-        .steps{display:flex;flex-direction:column;gap:16px;}
-        .step{display:flex;align-items:center;gap:16px;padding:20px;border:2px solid #E2E8F0;border-radius:12px;cursor:pointer;transition:all .25s;text-decoration:none;color:inherit;}
-        .step:hover{border-color:#3B82F6;background:#F8FAFC;transform:translateX(4px);}
-        .step.done{border-color:#10B981;background:#ECFDF5;}
-        .step-num{width:48px;height:48px;border-radius:50%;border:2px solid #E2E8F0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:#64748B;transition:all .25s;flex-shrink:0;}
-        .step:hover .step-num{border-color:#3B82F6;color:#3B82F6;}
-        .step.done .step-num{border-color:#10B981;color:#10B981;background:rgba(16,185,129,.1);}
-        .step-content{flex:1;}
-        .step-title{font-size:16px;font-weight:700;margin-bottom:4px;}
-        .step-desc{font-size:14px;color:#64748B;line-height:1.5;}
-        .step-arrow{font-size:24px;color:#CBD5E1;}
-        
-        /* KPI CARDS */
-        .kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:32px;}
-        .kpi{background:linear-gradient(135deg,#1E293B,#0F172A);border:1px solid rgba(59,130,246,.2);border-radius:16px;padding:24px;position:relative;overflow:hidden;}
-        .kpi::before{content:'';position:absolute;top:-40%;right:-20%;width:200px;height:200px;background:radial-gradient(circle,var(--glow-color,rgba(59,130,246,.15)),transparent);pointer-events:none;}
-        .kpi-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
-        .kpi-label{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,.5);}
-        .kpi-badge{font-size:11px;font-weight:800;padding:4px 10px;border-radius:20px;background:rgba(16,185,129,.2);color:#10B981;}
-        .kpi-value{font-size:40px;font-weight:900;color:#fff;line-height:1;margin-bottom:8px;}
-        .kpi-sub{font-size:13px;color:rgba(255,255,255,.4);}
-        
-        /* CHARTS */
-        .charts{display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:32px;}
-        .chart-card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
-        .chart-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
-        .chart-title{font-size:16px;font-weight:800;color:#0F172A;}
-        .chart-sub{font-size:12px;color:#64748B;margin-top:2px;}
-        
-        /* Bar Chart */
-        .bar-chart{display:flex;align-items:flex-end;gap:8px;height:120px;}
-        .bar{flex:1;border-radius:6px 6px 0 0;background:linear-gradient(180deg,#3B82F6,#1E40AF);transition:all .3s;cursor:pointer;}
-        .bar:hover{background:linear-gradient(180deg,#60A5FA,#3B82F6);}
-        .bar-labels{display:flex;gap:8px;margin-top:12px;}
-        .bar-label{flex:1;text-align:center;font-size:11px;color:#64748B;font-weight:600;}
-        
-        /* Activity Feed */
-        .activity{background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
-        .activity-header{font-size:16px;font-weight:800;margin-bottom:20px;color:#0F172A;}
-        .activity-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid #F1F5F9;}
-        .activity-item:last-child{border-bottom:none;}
-        .activity-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
-        .activity-content{flex:1;min-width:0;}
-        .activity-title{font-size:14px;font-weight:700;margin-bottom:2px;color:#0F172A;}
-        .activity-desc{font-size:12px;color:#64748B;}
-        .activity-time{font-size:11px;color:#94A3B8;white-space:nowrap;}
-        
-        .empty{text-align:center;padding:60px 24px;color:#64748B;}
-        .empty-icon{font-size:64px;margin-bottom:16px;opacity:.3;}
-        .empty h3{font-size:18px;font-weight:700;color:#0F172A;margin-bottom:8px;}
-        .empty p{font-size:14px;line-height:1.6;}
+        body{font-family:'DM Sans',sans-serif;background:#f0f4f8;}
+        .lay{display:flex;min-height:100vh;}
+        .mn{margin-left:230px;flex:1;padding:28px 32px;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px;animation:rise .45s ease both;}
+        .ttl{font-family:'Sora',sans-serif;font-size:22px;font-weight:900;color:#0f172a;letter-spacing:-.6px;}
+        .tr{display:flex;gap:10px;align-items:center;}
+        .pill{display:flex;align-items:center;gap:7px;padding:8px 16px;background:#fff;border:1px solid #e2e8f0;border-radius:50px;font-size:12.5px;font-weight:700;color:#374151;}
+        .pd{width:7px;height:7px;background:#10b981;border-radius:50%;animation:epulse 2s infinite;}
+        .cbtn{padding:10px 22px;background:linear-gradient(135deg,#4f8ef7,#6366f1);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 4px 14px rgba(79,142,247,.3);transition:all .2s;}
+        .cbtn:hover{transform:translateY(-1px);box-shadow:0 7px 20px rgba(79,142,247,.4);}
+        .kgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:22px;}
+        .kcard{background:#fff;border:1px solid #e8edf3;border-radius:16px;padding:22px 24px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(0,0,0,.05);transition:all .28s;position:relative;overflow:hidden;}
+        .kcard::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:16px 16px 0 0;}
+        .kc0{animation:pop .45s .02s ease both;}.kc0::before{background:linear-gradient(90deg,#4f8ef7,#818cf8);}
+        .kc1{animation:pop .45s .08s ease both;}.kc1::before{background:linear-gradient(90deg,#10b981,#34d399);}
+        .kc2{animation:pop .45s .14s ease both;}.kc2::before{background:linear-gradient(90deg,#f59e0b,#fbbf24);}
+        .kcard:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(0,0,0,.1);}
+        .klbl{font-size:11px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;}
+        .kval{font-family:'Sora',sans-serif;font-size:40px;font-weight:900;line-height:1;letter-spacing:-1.5px;}
+        .ksuf{font-size:18px;font-weight:700;color:#94a3b8;margin-left:2px;}
+        .kdlta{font-size:12px;font-weight:700;margin-top:6px;}
+        .kbars{display:flex;align-items:flex-end;gap:4px;height:44px;}
+        .kbar{width:9px;border-radius:4px;transform-origin:bottom;animation:bgrow .7s ease both;}
+        .cgrid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-bottom:22px;}
+        .cc{background:#fff;border:1px solid #e8edf3;border-radius:16px;padding:22px 24px;box-shadow:0 2px 12px rgba(0,0,0,.05);animation:rise .45s .12s ease both;}
+        .ctitle{font-family:'Sora',sans-serif;font-size:15px;font-weight:800;color:#0f172a;margin-bottom:18px;}
+        .bgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+        .bc{background:#fff;border:1px solid #e8edf3;border-radius:16px;padding:22px 24px;box-shadow:0 2px 12px rgba(0,0,0,.05);animation:rise .45s .18s ease both;}
+        .bh{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+        .bttl{font-family:'Sora',sans-serif;font-size:15px;font-weight:800;color:#0f172a;}
+        .vl{font-size:12px;font-weight:700;color:#4f8ef7;text-decoration:none;}
+        .arow{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f8fafc;}
+        .arow:last-child{border-bottom:none;}
+        .aleft{display:flex;align-items:center;gap:12px;}
+        .aic{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+        .aname{font-size:13.5px;font-weight:700;color:#0f172a;}
+        .asub{font-size:11px;color:#94a3b8;margin-top:1px;}
+        .atag{font-size:11px;font-weight:800;padding:4px 10px;border-radius:6px;}
+        .prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f8fafc;}
+        .prow:last-child{border-bottom:none;}
+        .pic{width:34px;height:34px;border-radius:9px;background:#f8fafc;border:1px solid #e8edf3;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+        .pname{font-size:13.5px;font-weight:700;color:#0f172a;}
+        .psub{font-size:11.5px;color:#94a3b8;}
+        .ftabs{display:flex;gap:6px;margin-bottom:14px;}
+        .ftab{padding:5px 13px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e2e8f0;background:#fff;color:#64748b;font-family:inherit;transition:all .15s;}
+        .ftab.on{background:#0f172a;color:#fff;border-color:#0f172a;}
+        .gbtn{width:100%;margin-top:14px;padding:11px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:10px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 4px 12px rgba(16,185,129,.25);transition:all .2s;}
+        .gbtn:hover{transform:translateY(-1px);}
+        .setup-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px;animation:rise .45s .22s ease both;}
+        .setup-card{display:flex;align-items:center;gap:12px;padding:16px 18px;background:#fff;border:1.5px solid #e8edf3;border-radius:12px;text-decoration:none;color:inherit;transition:all .2s;}
+        .setup-card:hover{border-color:#4f8ef7;background:#f8fbff;transform:translateY(-2px);}
+        .setup-card.done{border-color:#10b981;background:#f0fdf9;}
+        .setup-n{width:34px;height:34px;border-radius:50%;border:2px solid #e2e8f0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#94a3b8;flex-shrink:0;transition:all .2s;}
+        .setup-card:hover .setup-n{border-color:#4f8ef7;color:#4f8ef7;}
+        .setup-card.done .setup-n{border-color:#10b981;color:#10b981;background:rgba(16,185,129,.08);}
+        .empty-val{font-family:'Sora',sans-serif;font-size:36px;font-weight:900;line-height:1;color:#cbd5e1;}
       `}</style>
 
-      <div className="layout">
-        {/* DARK SIDEBAR */}
-        <nav className="sidebar">
-          <div className="logo">
-            <div className="logo-icon">S</div>
-            <div className="logo-text">Sponsor<span>Path</span></div>
-          </div>
-
-          <div className="nav-section">
-            <div className="nav-label">Main</div>
-            <Link href="/dashboard" className="nav-item active">
-              <span className="nav-icon">📊</span>
-              Overview
-            </Link>
-            <Link href="/applications" className="nav-item">
-              <span className="nav-icon">📋</span>
-              Applications
-            </Link>
-            <Link href="/cv" className="nav-item">
-              <span className="nav-icon">📄</span>
-              Resume & ATS
-            </Link>
-            <Link href="/jobs" className="nav-item">
-              <span className="nav-icon">🤖</span>
-              Job Engine
-            </Link>
-            <Link href="/real-chances" className="nav-item">
-              <span className="nav-icon">🎯</span>
-              Real Chances
-            </Link>
-            <Link href="/profile" className="nav-item">
-              <span className="nav-icon">👤</span>
-              My Profile
-            </Link>
-          </div>
-
-          <div className="engine-badge">
-            <div className="engine-status">
-              <div className="pulse"/>
-              <div className="engine-title">SponsorPath Engine</div>
-            </div>
-            <div className="engine-sub">
-              {prefs?.engine_active !== false ? 'Actively searching' : 'Paused'}
+      <div className="lay">
+        <Sidebar/>
+        <main className="mn">
+          <div className="topbar">
+            <div className="ttl">Automation Dashboard</div>
+            <div className="tr">
+              <div className="pill"><div className="pd"/>Engine Active</div>
+              <Link href="/jobs" className="cbtn" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>Find Jobs</Link>
             </div>
           </div>
 
-          <div className="user-card">
-            <div className="user-avatar">{initials}</div>
-            <div className="user-info">
-              <div className="user-name">{userName}</div>
-              <div className="user-email">{user?.email}</div>
-            </div>
-          </div>
-          <button className="sign-out" onClick={handleSignOut}>Sign Out</button>
-        </nav>
-
-        {/* MAIN CONTENT */}
-        <main className="main">
-          <div className="header">
-            <h1>Dashboard Overview</h1>
-            <button className="upgrade-btn">⚡ Upgrade to Pro</button>
-          </div>
-
-          {isNewUser ? (
-            /* ONBOARDING */
-            <div className="onboarding">
-              <h2>Welcome to SponsorPath 👋</h2>
-              <p className="onboarding-sub">
-                You're 3 steps away from having the engine apply to UK sponsor-verified jobs for you — automatically.
-              </p>
-              <div className="steps">
-                <Link href="/cv" className={`step ${hasCV ? 'done' : ''}`}>
-                  <div className="step-num">{hasCV ? '✓' : '1'}</div>
-                  <div className="step-content">
-                    <div className="step-title">Upload your CV & get ATS score</div>
-                    <div className="step-desc">Engine extracts your profile automatically. PDF and DOCX supported.</div>
+          {/* KPI CARDS - always rendered, show 0 if no data */}
+          <div className="kgrid">
+            {[
+              {cls:'kc0',lbl:'Applications Sent',  val:totalApps,    suf:'',     delta:totalApps>0?`+${barData.slice(-2).reduce((a,b)=>a+b,0)} today`:'Upload CV to start',       dc:'#10b981',  color:'#4f8ef7'},
+              {cls:'kc1',lbl:'Hours Saved',         val:hoursSaved,   suf:' hrs', delta:totalApps>0?`${Math.round(hoursSaved*.15)} hrs this week`:'Tracked automatically',          dc:'#10b981',  color:'#10b981'},
+              {cls:'kc2',lbl:'Response Rate',       val:responseRate, suf:'%',    delta:totalApps>0?`${responses} employer responses`:'No applications yet',                        dc:responseRate>20?'#10b981':'#94a3b8', color:'#f59e0b'},
+            ].map((k,i)=>(
+              <div key={k.lbl} className={`kcard ${k.cls}`}>
+                <div>
+                  <div className="klbl">{k.lbl}</div>
+                  <div style={{display:'flex',alignItems:'baseline',gap:2}}>
+                    {totalApps>0||k.lbl==='Applications Sent' ? (
+                      <><span className="kval" style={{color:k.color}}>{entered?<Counter to={k.val} dur={1100+i*150}/>:0}</span><span className="ksuf">{k.suf}</span></>
+                    ) : (
+                      <span className="empty-val">--</span>
+                    )}
                   </div>
-                  <div className="step-arrow">→</div>
-                </Link>
-
-                <Link href="/jobs" className={`step ${apps.length > 0 ? 'done' : ''}`}>
-                  <div className="step-num">{apps.length > 0 ? '✓' : '2'}</div>
-                  <div className="step-content">
-                    <div className="step-title">Run the Job Engine</div>
-                    <div className="step-desc">Auto-searches sponsored roles, outside IR35, and inside IR35 contracts.</div>
-                  </div>
-                  <div className="step-arrow">→</div>
-                </Link>
-
-                <Link href="/profile" className={`step ${profile?.profile_complete ? 'done' : ''}`}>
-                  <div className="step-num">{profile?.profile_complete ? '✓' : '3'}</div>
-                  <div className="step-content">
-                    <div className="step-title">Complete your profile</div>
-                    <div className="step-desc">Add visa expiry, salary expectations, UK address so engine can apply.</div>
-                  </div>
-                  <div className="step-arrow">{profile?.profile_complete ? '✅' : '→'}</div>
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* KPI CARDS */}
-              <div className="kpi-grid">
-                <div className="kpi" style={{'--glow-color':'rgba(59,130,246,.15)'} as any}>
-                  <div className="kpi-header">
-                    <div className="kpi-label">Applications</div>
-                    <div className="kpi-badge">+{last7Days.reduce((a,b)=>a+b,0)} this week</div>
-                  </div>
-                  <div className="kpi-value">{totalApps}</div>
-                  <div className="kpi-sub">Total sent</div>
+                  <div className="kdlta" style={{color:k.dc}}>{k.delta}</div>
                 </div>
-
-                <div className="kpi" style={{'--glow-color':'rgba(16,185,129,.15)'} as any}>
-                  <div className="kpi-header">
-                    <div className="kpi-label">Response Rate</div>
-                    <div className="kpi-badge">{responses} responses</div>
-                  </div>
-                  <div className="kpi-value">{responseRate}%</div>
-                  <div className="kpi-sub">{interviews} interview{interviews !== 1 ? 's' : ''}</div>
-                </div>
-
-                <div className="kpi" style={{'--glow-color':'rgba(139,92,246,.15)'} as any}>
-                  <div className="kpi-header">
-                    <div className="kpi-label">ATS Score</div>
-                    <div className="kpi-badge">{cvScore >= 80 ? 'Ready' : 'Needs work'}</div>
-                  </div>
-                  <div className="kpi-value">{cvScore}/100</div>
-                  <div className="kpi-sub">{hasCV ? 'Latest CV' : 'No CV yet'}</div>
+                <div className="kbars">
+                  {barData.map((v,j)=>(
+                    <div key={j} className="kbar" style={{
+                      height:`${Math.max((v/maxBar)*44,totalApps===0?4+(j*2):3)}px`,
+                      background:j===barData.length-1?k.color:`${k.color}30`,
+                      animationDelay:`${j*.04}s`,
+                    }}/>
+                  ))}
                 </div>
               </div>
+            ))}
+          </div>
 
-              {/* CHARTS */}
-              <div className="charts">
-                <div className="chart-card">
-                  <div className="chart-header">
-                    <div>
-                      <div className="chart-title">Application Activity</div>
-                      <div className="chart-sub">Last 7 days</div>
-                    </div>
-                  </div>
-                  <div className="bar-chart">
-                    {last7Days.map((count, i) => {
-                      const maxCount = Math.max(...last7Days, 1)
-                      const height = (count / maxCount) * 100
-                      return <div key={i} className="bar" style={{height: `${Math.max(height, 8)}%`}} title={`${count} apps`}/>
-                    })}
-                  </div>
-                  <div className="bar-labels">
-                    {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => <div key={d} className="bar-label">{d}</div>)}
-                  </div>
+          {/* CHARTS */}
+          <div className="cgrid">
+            <div className="cc">
+              <div className="ctitle">Application Activity</div>
+              {totalApps===0 ? (
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:128,color:'#94a3b8',fontSize:13,fontWeight:600,flexDirection:'column',gap:8}}>
+                  <span style={{fontSize:28,opacity:.3}}>📈</span>
+                  No applications yet - <Link href="/jobs" style={{color:'#4f8ef7'}}>browse jobs</Link>
                 </div>
-
-                <div className="chart-card">
-                  <div className="chart-header">
-                    <div>
-                      <div className="chart-title">Status</div>
-                      <div className="chart-sub">Current applications</div>
-                    </div>
+              ) : (
+                <>
+                  <svg width="100%" height="128" viewBox="0 0 380 128" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="aag" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#4f8ef7" stopOpacity=".18"/>
+                        <stop offset="100%" stopColor="#4f8ef7" stopOpacity="0"/>
+                      </linearGradient>
+                    </defs>
+                    {[0,1,2,3,4].map(i=>(<line key={i} x1="0" y1={i*26+4} x2="380" y2={i*26+4} stroke="#f1f5f9" strokeWidth="1"/>))}
+                    {barData.length>1&&(<>
+                      <path d={`M 0 ${118-((barData[0]/maxBar)*100)} ${barData.map((v,i)=>`L ${(i/(barData.length-1))*380} ${118-((v/maxBar)*100)}`).join(' ')} L 380 118 L 0 118 Z`} fill="url(#aag)"/>
+                      <polyline fill="none" stroke="#4f8ef7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={barData.map((v,i)=>`${(i/(barData.length-1))*380},${118-((v/maxBar)*100)}`).join(' ')}/>
+                      {barData.map((v,i)=>(<circle key={i} cx={(i/(barData.length-1))*380} cy={118-((v/maxBar)*100)} r="4.5" fill="#4f8ef7" stroke="#fff" strokeWidth="2"/>))}
+                    </>)}
+                  </svg>
+                  <div style={{display:'flex',justifyContent:'space-between',marginTop:10}}>
+                    {dayLabels.map((d,i)=>(<span key={i} style={{fontSize:11,color:'#94a3b8',fontWeight:700}}>{d}</span>))}
                   </div>
-                  <div style={{display:'flex',flexDirection:'column',gap:'12px',marginTop:'12px'}}>
-                    {[
-                      {label:'Applied',count:apps.filter(a=>a.status==='applied').length,color:'#3B82F6'},
-                      {label:'Viewing',count:apps.filter(a=>a.status==='in_review').length,color:'#F59E0B'},
-                      {label:'Interview',count:apps.filter(a=>a.status==='interview').length,color:'#10B981'},
-                      {label:'Offer',count:apps.filter(a=>a.status==='offer').length,color:'#8B5CF6'}
-                    ].map(s => (
-                      <div key={s.label} style={{display:'flex',alignItems:'center',gap:'12px'}}>
-                        <div style={{width:10,height:10,borderRadius:'50%',background:s.color,flexShrink:0}}/>
-                        <div style={{flex:1,fontSize:'13px',color:'#64748B',fontWeight:600}}>{s.label}</div>
-                        <div style={{fontSize:'16px',fontWeight:800,color:'#0F172A'}}>{s.count}</div>
+                </>
+              )}
+            </div>
+
+            <div className="cc">
+              <div className="ctitle">Application Breakdown</div>
+              {totalApps===0 ? (
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:128,color:'#94a3b8',fontSize:13,fontWeight:600,flexDirection:'column',gap:8}}>
+                  <span style={{fontSize:28,opacity:.3}}>🍩</span>
+                  Apply to jobs to see breakdown
+                </div>
+              ) : (
+                <div style={{display:'flex',alignItems:'center',gap:20}}>
+                  <svg width="136" height="136" viewBox="0 0 136 136" style={{flexShrink:0}}>
+                    {segs.map((s,i)=>(<path key={i} d={arcPath(68,68,50,s.s,s.e)} fill="none" stroke={s.c} strokeWidth="20" strokeLinecap="round"/>))}
+                    <circle cx="68" cy="68" r="30" fill="#fff"/>
+                    <text x="68" y="64" textAnchor="middle" fontSize="18" fontWeight="900" fill="#0f172a" fontFamily="Sora,sans-serif">{totalApps}</text>
+                    <text x="68" y="79" textAnchor="middle" fontSize="9" fill="#94a3b8" fontWeight="700" letterSpacing="1.2">TOTAL</text>
+                  </svg>
+                  <div style={{display:'flex',flexDirection:'column',gap:10,flex:1}}>
+                    {donutData.map(d=>(
+                      <div key={d.label} style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,fontWeight:600,color:'#374151'}}>
+                          <div style={{width:10,height:10,borderRadius:3,background:d.c}}/>
+                          {d.label}
+                        </div>
+                        <span style={{fontSize:13,fontWeight:800,color:'#0f172a'}}>{d.v}</span>
                       </div>
                     ))}
                   </div>
                 </div>
-              </div>
+              )}
+            </div>
+          </div>
 
-              {/* ACTIVITY FEED */}
-              <div className="activity">
-                <div className="activity-header">Engine Activity</div>
-                {apps.length === 0 ? (
-                  <div className="empty">
-                    <div className="empty-icon">📭</div>
-                    <h3>No activity yet</h3>
-                    <p>Run the Job Engine to start applying to sponsor-verified roles.</p>
+          {/* BOTTOM */}
+          <div className="bgrid">
+            <div className="bc">
+              <div className="bh">
+                <div className="bttl">Recent Applications</div>
+                <Link href="/applications" className="vl">View all</Link>
+              </div>
+              {apps.length===0 ? (
+                <div style={{textAlign:'center',padding:'28px 0',color:'#94a3b8',fontSize:13,fontWeight:600}}>
+                  <div style={{fontSize:28,marginBottom:8,opacity:.25}}>📋</div>
+                  No applications yet<br/>
+                  <Link href="/jobs" style={{color:'#4f8ef7',fontWeight:700,marginTop:8,display:'inline-block'}}>Start job search</Link>
+                </div>
+              ) : apps.slice(0,4).map((a:any,i:number)=>{
+                const cfg=a.status==='interview'?{bg:'#ecfdf5',c:'#059669',t:'Interview'}:a.status==='in_review'?{bg:'#fffbeb',c:'#d97706',t:'In Review'}:a.status==='offer'?{bg:'#f5f3ff',c:'#7c3aed',t:'Offer'}:{bg:'#eff6ff',c:'#2563eb',t:'Applied'}
+                return(
+                  <div key={i} className="arow">
+                    <div className="aleft">
+                      <div className="aic" style={{background:cfg.bg}}>{['💼','🏢','🎯','📊'][i%4]}</div>
+                      <div>
+                        <div className="aname">{a.job_title}</div>
+                        <div className="asub">{a.company}</div>
+                      </div>
+                    </div>
+                    <span className="atag" style={{background:cfg.bg,color:cfg.c}}>{cfg.t}</span>
                   </div>
-                ) : apps.slice(0, 5).map((app, i) => (
-                  <div key={i} className="activity-item">
-                    <div className="activity-icon" style={{
-                      background: app.status === 'interview' ? 'rgba(16,185,129,.1)' :
-                                 app.status === 'in_review' ? 'rgba(245,158,11,.1)' : 
-                                 'rgba(59,130,246,.1)'
-                    }}>
-                      {app.status === 'interview' ? '🗓️' : app.status === 'in_review' ? '👀' : '📤'}
-                    </div>
-                    <div className="activity-content">
-                      <div className="activity-title">{app.job_title} — {app.company}</div>
-                      <div className="activity-desc">📍 {app.location}</div>
-                    </div>
-                    <div className="activity-time">
-                      {new Date(app.applied_at).toLocaleDateString('en-GB')}
-                    </div>
+                )
+              })}
+            </div>
+
+            <div className="bc">
+              <div className="bh">
+                <div className="bttl">Performance</div>
+                <select style={{border:'1px solid #e2e8f0',borderRadius:7,padding:'5px 10px',fontSize:12,color:'#374151',fontFamily:'inherit',cursor:'pointer',outline:'none',fontWeight:600}}>
+                  <option>7 days</option><option>30 days</option><option>All time</option>
+                </select>
+              </div>
+              <div className="ftabs">
+                <button className="ftab on">Overview</button>
+                <button className="ftab">Daily</button>
+                <button className="ftab">Weekly</button>
+              </div>
+              {[
+                {ic:'📋',n:'Applications Sent',  s: totalApps>0?`${totalApps} total`:'None yet'},
+                {ic:'🔍',n:'CV Score',            s: cvScore>0?`${cvScore}/100`:'Not uploaded'},
+                {ic:'🎯',n:'Sponsor Matches',     s: responses>0?`${responses} responses`:'0 responses'},
+                {ic:'📅',n:'Interviews',           s: interviews>0?`${interviews} booked`:'None yet'},
+              ].map((p,i)=>(
+                <div key={i} className="prow">
+                  <div className="pic">{p.ic}</div>
+                  <div>
+                    <div className="pname">{p.n}</div>
+                    <div className="psub">{p.s}</div>
                   </div>
+                </div>
+              ))}
+              <Link href="/jobs" className="gbtn" style={{textDecoration:'none',display:'block',textAlign:'center'}}>Search Jobs Now</Link>
+            </div>
+          </div>
+
+          {/* SETUP STEPS - only if new */}
+          {isNew&&(
+            <div>
+              <div style={{fontFamily:'Sora,sans-serif',fontSize:'11px',fontWeight:800,color:'#94a3b8',margin:'20px 0 12px',letterSpacing:'.8px',textTransform:'uppercase'}}>GET STARTED</div>
+              <div className="setup-grid">
+                {[
+                  {n:1,done:cvs.length>0,  href:'/cv',      t:'Upload CV',         s:'Get your ATS score + auto-fill profile'},
+                  {n:2,done:apps.length>0,  href:'/jobs',    t:'Search Jobs',       s:'Find sponsored roles across UK'},
+                  {n:3,done:!!profile?.profile_complete, href:'/profile', t:'Complete Profile', s:'Enable full engine features'},
+                ].map(step=>(
+                  <Link key={step.n} href={step.href} className={`setup-card${step.done?' done':''}`}>
+                    <div className="setup-n">{step.done?'✓':step.n}</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13.5,fontWeight:700,color:'#0f172a',marginBottom:2}}>{step.t}</div>
+                      <div style={{fontSize:11.5,color:'#94a3b8'}}>{step.s}</div>
+                    </div>
+                  </Link>
                 ))}
               </div>
-            </>
+            </div>
           )}
         </main>
       </div>

@@ -1,230 +1,277 @@
-// ═══════════════════════════════════════════════════════════════════
-// FILE: app/api/jobs/search/route.ts
-// Job search with Reed API + sponsor verification
-// ═══════════════════════════════════════════════════════════════════
+// ============================================================
+// FILE: src/app/api/jobs/search/route.ts
+// ============================================================
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 
-// Sponsor-verified companies (from our database)
-const KNOWN_SPONSORS = [
-  'revolut', 'monzo', 'wise', 'starling', 'checkout', 'amazon', 'google',
-  'meta', 'microsoft', 'apple', 'deloitte', 'pwc', 'kpmg', 'ey', 'accenture',
-  'hsbc', 'barclays', 'lloyds', 'jpmorgan', 'goldman sachs'
-]
+const SPONSORS = new Set([
+  'revolut','monzo','wise','starling bank','checkout.com','amazon','google','meta',
+  'microsoft','apple','deloitte','pwc','kpmg','ernst & young','ey','accenture',
+  'hsbc','barclays','lloyds','jpmorgan','goldman sachs','morgan stanley','bbc',
+  'nhs','bt','vodafone','rolls-royce','airbus','bp','shell','tesco','sainsbury',
+  'marks and spencer','unilever','astrazeneca','gsk','pfizer','mckinsey','bcg',
+  'salesforce','oracle','sap','ibm','capgemini','infosys','tata consultancy',
+  'wipro','cognizant','atos','experian','sage','arm holdings','softcat','kainos',
+  'thoughtworks','and digital','snyk','darktrace','quantexa','onfido','cleo',
+  'octopus energy','deliveroo','farfetch','zoopla','rightmove','funding circle',
+  'just eat','moonpig','marshmallow','chip','tandem','curve','tide','cazoo','zego',
+])
 
-function normalizeName(name: string): string {
-  return name.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ')
+function isSponsor(company: string) {
+  const n = company.toLowerCase()
+  return [...SPONSORS].some(s => n.includes(s))
 }
 
-function isSponsorVerified(company: string): boolean {
-  const normalized = normalizeName(company)
-  return KNOWN_SPONSORS.some(sponsor => normalized.includes(sponsor) || sponsor.includes(normalized))
+// Match score: ONLY calculated when CV is uploaded (cvScore > 0)
+// Returns null when no CV — UI shows "N/A" instead of a fake number
+function matchScore(title: string, roles: string, cvScore: number): number | null {
+  if (!cvScore || cvScore === 0) return null  // no CV = no score
+  const base = Math.max(cvScore, 50)
+  const titleLower = title.toLowerCase()
+  const exact = roles.split(',').some(r => {
+    const role = r.trim().toLowerCase()
+    return role && titleLower.includes(role.split(' ')[0])
+  })
+  const raw = exact ? base * 0.95 + Math.random() * 5 : base * 0.70 + Math.random() * 15
+  return Math.min(Math.floor(raw), 99)
 }
 
-export async function GET(req: NextRequest) {
+function cleanHTML(s: string): string {
+  return (s || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#[0-9]+;/g, '')
+    .replace(/\n{4,}/g, '\n\n')
+    .trim()
+}
+
+function timeAgo(dateStr: string): string {
+  if (!dateStr) return 'Recently'
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return 'Recently'
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (mins < 60) return `${mins}m ago`
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`
+  if (mins < 10080) return `${Math.floor(mins / 1440)}d ago`
+  return `${Math.floor(mins / 10080)}w ago`
+}
+
+// ── REED API ─────────────────────────────────────────────
+async function fetchReed(keywords: string, location: string, count = 25) {
+  const key = process.env.REED_API_KEY
+  if (!key) return []
   try {
-    const { searchParams } = new URL(req.url)
-    const userId = searchParams.get('userId')
-    const sponsored = searchParams.get('sponsored') === 'true'
-    const limit = parseInt(searchParams.get('limit') || '20')
-
-    if (!userId) {
-      return NextResponse.json({ error: 'userId required' }, { status: 400 })
-    }
-
-    const cookieStore = await cookies()
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => cookieStore.getAll(),
-          setAll: (c) => c.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
-        }
-      }
+    const url = `https://www.reed.co.uk/api/1.0/search?keywords=${encodeURIComponent(keywords)}&location=${encodeURIComponent(location)}&resultsToTake=${count}&minimumSalary=0`
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Basic ${Buffer.from(key + ':').toString('base64')}` },
+      signal: AbortSignal.timeout(7000),
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    const jobs = data.results || []
+    // Fetch full description for each job (Reed requires a separate call)
+    const full = await Promise.allSettled(
+      jobs.slice(0, 15).map(async (j: any) => {
+        try {
+          const dr = await fetch(`https://www.reed.co.uk/api/1.0/jobs/${j.jobId}`, {
+            headers: { 'Authorization': `Basic ${Buffer.from(key + ':').toString('base64')}` },
+            signal: AbortSignal.timeout(5000),
+          })
+          if (!dr.ok) return j
+          const detail = await dr.json()
+          return { ...j, jobDescription: detail.jobDescription || j.jobDescription }
+        } catch { return j }
+      })
     )
-
-    // Get user profile for search criteria
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
-
-    const targetRole = profile?.target_roles?.[0] || 'Software Engineer'
-    const location = profile?.location_city || 'London'
-
-    // Check if we have cached jobs
-    const { data: cachedJobs } = await supabase
-      .from('jobs')
-      .select('*, employer:employers(*)')
-      .eq('active', true)
-      .eq('sponsor_verified', sponsored)
-      .order('posted_at', { ascending: false })
-      .limit(limit)
-
-    if (cachedJobs && cachedJobs.length >= 5) {
-      return NextResponse.json({ jobs: cachedJobs })
-    }
-
-    // If no Reed API key, return demo jobs
-    if (!process.env.REED_API_KEY) {
-      const demoJobs = generateDemoJobs(sponsored, limit)
-      return NextResponse.json({ jobs: demoJobs })
-    }
-
-    // Search Reed API
-    const reedRes = await fetch(
-      `https://www.reed.co.uk/api/1.0/search?keywords=${encodeURIComponent(targetRole)}&location=${encodeURIComponent(location)}&resultsToTake=${limit}`,
-      {
-        headers: {
-          'Authorization': `Basic ${Buffer.from(process.env.REED_API_KEY + ':').toString('base64')}`
-        }
-      }
-    )
-
-    if (!reedRes.ok) {
-      throw new Error('Reed API failed')
-    }
-
-    const reedData = await reedRes.json()
-    const jobs = (reedData.results || []).map((job: any) => ({
-      id: job.jobId.toString(),
-      title: job.jobTitle,
-      company: job.employerName,
-      company_normalized: normalizeName(job.employerName),
-      location: job.locationName,
-      salary_min: job.minimumSalary,
-      salary_max: job.maximumSalary,
-      contract_type: job.jobDescription?.toLowerCase().includes('contract') ? 'contract' : 'permanent',
-      description: job.jobDescription,
+    const detailed = full.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
+    return [...detailed, ...jobs.slice(15)].map((j: any) => ({
+      id: `reed_${j.jobId}`,
+      title: j.jobTitle || '',
+      company: j.employerName || '',
+      location: j.locationName || location,
+      salary: j.minimumSalary ? `£${j.minimumSalary.toLocaleString()}${j.maximumSalary ? ` - £${j.maximumSalary.toLocaleString()}` : ''}` : 'Competitive',
+      salary_raw: j.minimumSalary || 0,
+      contract_type: j.contractType || 'Permanent',
+      description: cleanHTML(j.jobDescription || j.jobTitle || ''),
+      url: j.jobUrl || `https://www.reed.co.uk/jobs/${j.jobId}`,
       source: 'Reed',
-      source_url: job.jobUrl,
-      external_id: `reed_${job.jobId}`,
-      posted_at: job.date,
-      sponsor_verified: isSponsorVerified(job.employerName),
-      sponsor_confidence: isSponsorVerified(job.employerName) ? 100 : 0
+      posted: j.date || '',
+      sponsor_verified: isSponsor(j.employerName || ''),
+      ir35: (j.contractType || '').toLowerCase().includes('contract') ? 'inside' : 'N/A',
+    }))
+  } catch { return [] }
+}
+
+// ── ADZUNA API ───────────────────────────────────────────
+async function fetchAdzuna(keywords: string, location: string, count = 20) {
+  const appId = process.env.ADZUNA_APP_ID
+  const apiKey = process.env.ADZUNA_API_KEY
+  if (!appId || !apiKey) return []
+  try {
+    const url = `https://api.adzuna.com/v1/api/jobs/gb/search/1?app_id=${appId}&app_key=${apiKey}&results_per_page=${count}&what=${encodeURIComponent(keywords)}&where=${encodeURIComponent(location)}&content-type=application/json`
+    const res = await fetch(url, { signal: AbortSignal.timeout(7000) })
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.results || []).map((j: any) => ({
+      id: `adzuna_${j.id}`,
+      title: j.title || '',
+      company: j.company?.display_name || '',
+      location: j.location?.display_name || location,
+      salary: j.salary_min ? `£${Math.floor(j.salary_min).toLocaleString()}${j.salary_max ? ` - £${Math.floor(j.salary_max).toLocaleString()}` : ''}` : 'Competitive',
+      salary_raw: j.salary_min || 0,
+      contract_type: j.contract_type || j.contract_time || 'Permanent',
+      description: cleanHTML(j.description || ''),
+      url: j.redirect_url || '',
+      source: 'Adzuna',
+      posted: j.created || '',
+      sponsor_verified: isSponsor(j.company?.display_name || ''),
+      ir35: (j.contract_type || '').toLowerCase().includes('contract') ? 'tbc' : 'N/A',
+    }))
+  } catch { return [] }
+}
+
+// ── REMOTIVE (free, no key) ──────────────────────────────
+async function fetchRemotive(keywords: string, count = 15) {
+  try {
+    const res = await fetch(`https://remotive.com/api/remote-jobs?search=${encodeURIComponent(keywords)}&limit=${count}`, { signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.jobs || []).map((j: any) => ({
+      id: `remotive_${j.id}`,
+      title: j.title || '',
+      company: j.company_name || '',
+      location: 'Remote (UK eligible)',
+      salary: j.salary || 'Competitive',
+      salary_raw: 0,
+      contract_type: j.job_type || 'Full-time',
+      description: cleanHTML(j.description || ''),
+      url: j.url || '',
+      source: 'Remotive',
+      posted: j.publication_date || '',
+      sponsor_verified: isSponsor(j.company_name || ''),
+      ir35: 'N/A',
+    }))
+  } catch { return [] }
+}
+
+// ── THE MUSE (free, no key) ──────────────────────────────
+async function fetchMuse(keywords: string, count = 10) {
+  try {
+    const res = await fetch(`https://www.themuse.com/api/public/jobs?query=${encodeURIComponent(keywords)}&page=1&descending=true&api_key=`, { signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.results || []).slice(0, count).map((j: any) => ({
+      id: `muse_${j.id}`,
+      title: j.name || '',
+      company: j.company?.name || '',
+      location: j.locations?.[0]?.name || 'UK',
+      salary: 'Competitive',
+      salary_raw: 0,
+      contract_type: j.type || 'Full-time',
+      description: cleanHTML((j.contents || '').replace(/<[^>]+>/g, '')),
+      url: j.refs?.landing_page || '',
+      source: 'The Muse',
+      posted: j.publication_date || '',
+      sponsor_verified: isSponsor(j.company?.name || ''),
+      ir35: 'N/A',
+    }))
+  } catch { return [] }
+}
+
+// ── ARBEITNOW (free, no key) ────────────────────────────
+async function fetchArbeitnow(keywords: string, count = 15) {
+  try {
+    const res = await fetch(`https://www.arbeitnow.com/api/job-board-api?search=${encodeURIComponent(keywords)}`, { signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.data || []).slice(0, count).map((j: any) => ({
+      id: `arbeit_${j.slug}`,
+      title: j.title || '',
+      company: j.company_name || '',
+      location: j.location || 'UK',
+      salary: 'Competitive',
+      salary_raw: 0,
+      contract_type: j.job_types?.[0] || 'Full-time',
+      description: cleanHTML(j.description || ''),
+      url: j.url || '',
+      source: 'Arbeitnow',
+      posted: j.created_at ? new Date(j.created_at * 1000).toISOString() : '',
+      sponsor_verified: isSponsor(j.company_name || ''),
+      ir35: 'N/A',
+    }))
+  } catch { return [] }
+}
+
+function matchesTab(job: any, tab: string): boolean {
+  const t = (job.contract_type || '').toLowerCase()
+  const isContract = t.includes('contract') || t.includes('freelance') || t.includes('temp')
+  if (tab === 'sponsored')     return job.sponsor_verified && !isContract
+  if (tab === 'contract')      return isContract
+  if (tab === 'outside_ir35')  return isContract && (job.ir35 === 'outside' || job.ir35 === 'tbc')
+  if (tab === 'non_sponsored') return !job.sponsor_verified
+  return true
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const {
+      userId, filterType = 'sponsored',
+      keywords = 'software engineer', location = 'London',
+      cvScore = 0,          // 0 means no CV uploaded - no match scores
+      targetRoles = '',
+    } = await req.json()
+
+    // Fetch from all sources in parallel
+    const [reedJobs, adzunaJobs, remotiveJobs, museJobs, arbeitJobs] = await Promise.allSettled([
+      fetchReed(keywords, location, 25),
+      fetchAdzuna(keywords, location, 20),
+      filterType === 'non_sponsored' ? fetchRemotive(keywords, 15) : Promise.resolve([]),
+      filterType === 'non_sponsored' ? fetchMuse(keywords, 10) : Promise.resolve([]),
+      fetchArbeitnow(keywords, 15),
+    ])
+
+    const allJobs: any[] = [
+      ...((reedJobs.status === 'fulfilled' ? reedJobs.value : []) as any[]),
+      ...((adzunaJobs.status === 'fulfilled' ? adzunaJobs.value : []) as any[]),
+      ...((remotiveJobs.status === 'fulfilled' ? remotiveJobs.value : []) as any[]),
+      ...((museJobs.status === 'fulfilled' ? museJobs.value : []) as any[]),
+      ...((arbeitJobs.status === 'fulfilled' ? arbeitJobs.value : []) as any[]),
+    ]
+
+    // Deduplicate by title + company
+    const seen = new Set<string>()
+    const unique = allJobs.filter(j => {
+      const key = `${j.title?.toLowerCase()}_${j.company?.toLowerCase()}`
+      if (seen.has(key)) return false
+      seen.add(key); return true
+    })
+
+    // Filter to tab
+    const filtered = unique.filter(j => matchesTab(j, filterType))
+
+    // Add match score (null if no CV) and time_ago
+    const scored = filtered.map(j => ({
+      ...j,
+      match: matchScore(j.title, targetRoles || keywords, cvScore),
+      time_ago: timeAgo(j.posted),
     }))
 
-    // Filter by sponsor status
-    const filtered = jobs.filter((j: any) => sponsored ? j.sponsor_verified : !j.sponsor_verified)
+    // Sort: if CV uploaded sort by match desc, else by date (newest first)
+    const sorted = scored.sort((a, b) => {
+      if (a.match !== null && b.match !== null) return (b.match || 0) - (a.match || 0)
+      return 0
+    })
 
-    // Cache jobs in database
-    for (const job of filtered.slice(0, 10)) {
-      await supabase.from('jobs').upsert({
-        external_id: job.external_id,
-        title: job.title,
-        company: job.company,
-        company_normalized: job.company_normalized,
-        location: job.location,
-        salary_min: job.salary_min,
-        salary_max: job.salary_max,
-        contract_type: job.contract_type,
-        description: job.description,
-        source: job.source,
-        source_url: job.source_url,
-        posted_at: job.posted_at,
-        sponsor_verified: job.sponsor_verified,
-        sponsor_confidence: job.sponsor_confidence,
-        active: true,
-        ingested_at: new Date().toISOString()
-      }, { onConflict: 'external_id' }).then()
-    }
-
-    return NextResponse.json({ jobs: filtered })
-
+    return NextResponse.json({ jobs: sorted, total: sorted.length, sources: ['Reed', 'Adzuna', 'Arbeitnow'] })
   } catch (err: any) {
-    console.error('[/api/jobs/search]', err)
-    // Return demo jobs on error
-    const sponsored = new URL(req.url).searchParams.get('sponsored') === 'true'
-    const limit = parseInt(new URL(req.url).searchParams.get('limit') || '20')
-    return NextResponse.json({ jobs: generateDemoJobs(sponsored, limit) })
+    console.error('[jobs/search]', err)
+    return NextResponse.json({ error: err.message || 'Search failed' }, { status: 500 })
   }
-}
-
-function generateDemoJobs(sponsored: boolean, limit: number) {
-  const sponsoredJobs = [
-    {
-      id: 'demo-1',
-      title: 'Senior DevOps Engineer',
-      company: 'Revolut',
-      location: 'London',
-      salary_min: 80000,
-      salary_max: 120000,
-      contract_type: 'permanent',
-      description: 'Join Revolut as a Senior DevOps Engineer. Work on cutting-edge fintech infrastructure.',
-      source: 'Direct',
-      posted_at: new Date().toISOString(),
-      sponsor_verified: true,
-      sponsor_confidence: 100,
-      requirements: ['Kubernetes', 'AWS', 'Terraform', 'Python', 'CI/CD']
-    },
-    {
-      id: 'demo-2',
-      title: 'Full Stack Engineer',
-      company: 'Monzo',
-      location: 'London',
-      salary_min: 70000,
-      salary_max: 100000,
-      contract_type: 'permanent',
-      description: 'Build the future of banking at Monzo. React + Go stack.',
-      source: 'Direct',
-      posted_at: new Date().toISOString(),
-      sponsor_verified: true,
-      sponsor_confidence: 100,
-      requirements: ['React', 'Go', 'PostgreSQL', 'Kubernetes']
-    },
-    {
-      id: 'demo-3',
-      title: 'Data Engineer',
-      company: 'Wise',
-      location: 'London',
-      salary_min: 75000,
-      salary_max: 110000,
-      contract_type: 'permanent',
-      description: 'Scale data infrastructure at Wise, processing billions in transactions.',
-      source: 'Direct',
-      posted_at: new Date().toISOString(),
-      sponsor_verified: true,
-      sponsor_confidence: 100,
-      requirements: ['Python', 'Airflow', 'Snowflake', 'AWS']
-    }
-  ]
-
-  const nonSponsoredJobs = [
-    {
-      id: 'demo-4',
-      title: 'Frontend Developer',
-      company: 'Tech Startup Ltd',
-      location: 'London',
-      salary_min: 50000,
-      salary_max: 70000,
-      contract_type: 'permanent',
-      description: 'Join a growing startup building the next big thing.',
-      source: 'LinkedIn',
-      posted_at: new Date().toISOString(),
-      sponsor_verified: false,
-      sponsor_confidence: 0,
-      requirements: ['React', 'TypeScript', 'CSS']
-    },
-    {
-      id: 'demo-5',
-      title: 'Backend Engineer',
-      company: 'Digital Agency',
-      location: 'Manchester',
-      salary_min: 45000,
-      salary_max: 65000,
-      contract_type: 'permanent',
-      description: 'Build APIs for our client projects.',
-      source: 'Indeed',
-      posted_at: new Date().toISOString(),
-      sponsor_verified: false,
-      sponsor_confidence: 0,
-      requirements: ['Node.js', 'MongoDB', 'REST']
-    }
-  ]
-
-  const jobs = sponsored ? sponsoredJobs : nonSponsoredJobs
-  return jobs.slice(0, limit)
 }

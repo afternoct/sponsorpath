@@ -1,259 +1,248 @@
+// ============================================================
+// FILE: src/app/real-chances/page.tsx
+// ============================================================
 'use client'
-// ═══════════════════════════════════════════════════════════════════
-// REAL CHANCES PAGE - Sponsor likelihood calculator
-// ═══════════════════════════════════════════════════════════════════
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase, getProfile, getCVs } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
+import { supabase } from '@/lib/supabase'
+
+type Result = {
+  overall_score: number
+  grade: string
+  breakdown: { label:string; score:number; color:string }[]
+  tips: { text:string; impact:string }[]
+}
 
 export default function RealChancesPage() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
-  const [cvs, setCvs] = useState<any[]>([])
-  const [calculating, setCalculating] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [cvScore, setCvScore] = useState(0)
+  const [result, setResult] = useState<Result|null>(null)
+  const [loading, setLoading] = useState(false)
+  const [visible, setVisible] = useState(false)
 
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) { router.replace('/signin'); return }
-      setUser(session.user)
-      
-      const [profileRes, cvsRes] = await Promise.all([
-        getProfile(session.user.id),
-        getCVs(session.user.id)
+  useEffect(()=>{
+    supabase.auth.getSession().then(async({data:{session}})=>{
+      if(!session){router.replace('/signin');return}
+      const uid=session.user.id
+      const [{data:p},{data:cv}]=await Promise.all([
+        supabase.from('profiles').select('*').eq('user_id',uid).single(),
+        supabase.from('cvs').select('ats_score').eq('user_id',uid).eq('version_type','base').single(),
       ])
-      
-      if (profileRes.data) setProfile(profileRes.data)
-      if (cvsRes.data) setCvs(cvsRes.data)
+      if(p) setProfile(p)
+      if(cv?.ats_score) setCvScore(cv.ats_score)
+      setTimeout(()=>setVisible(true),60)
     })
-  }, [router])
+  },[router])
 
-  const calculateChances = async () => {
-    if (!user || !profile) return
-    setCalculating(true)
-
+  const calculate = async () => {
+    setLoading(true)
     try {
-      const res = await fetch('/api/real-chances', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          targetRole: profile.target_roles?.[0] || '',
-          location: profile.location_city || 'London',
-          visaStatus: profile.visa_status || '',
-          salaryMin: profile.salary_min || 0,
-          salaryMax: profile.salary_max || 0,
-          cvScore: cvs[0]?.ats_score || 0
-        })
+      const res = await fetch('/api/real-chances',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ userId:(await supabase.auth.getSession()).data.session?.user.id }),
       })
-
-      const data = await res.json()
-      if (data.result) {
-        setResult(data.result)
+      const d = await res.json()
+      if(res.ok && d.overall_score !== undefined) {
+        setResult({
+          overall_score: d.overall_score||0,
+          grade: d.grade||'',
+          breakdown: d.breakdown||[],
+          tips: d.tips||[],
+        })
+      } else {
+        // Calculate client-side if API fails
+        setResult(localCalc(profile, cvScore))
       }
-    } catch (e) {
-      console.error(e)
-      alert('Calculation failed')
-    } finally {
-      setCalculating(false)
+    } catch {
+      setResult(localCalc(profile, cvScore))
     }
+    setLoading(false)
   }
 
-  const hasRequiredData = profile?.target_roles?.length > 0 && profile?.visa_status && cvs.length > 0
+  const gradeLabel = (s:number) =>
+    s>=80?'Excellent':s>=65?'Good':s>=50?'Moderate':'Needs Work'
+  const gradeColor = (s:number) =>
+    s>=80?'#10b981':s>=65?'#4f8ef7':s>=50?'#f59e0b':'#ef4444'
 
-  return (
+  return(
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Sora:wght@700;800;900&display=swap');
+        @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes dash{from{stroke-dashoffset:283}to{stroke-dashoffset:var(--d)}}
+        @keyframes barFill{from{width:0}to{width:var(--w)}}
         *{margin:0;padding:0;box-sizing:border-box;}
-        body{font-family:'Inter',sans-serif;background:#F1F5F9;}
-        .page{max-width:1200px;margin:0 auto;padding:40px 24px;}
-        
-        .page-header{text-align:center;margin-bottom:48px;}
-        .page-header h1{font-size:40px;font-weight:900;background:linear-gradient(135deg,#0F172A,#3B82F6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px;}
-        .page-header p{font-size:18px;color:#64748B;line-height:1.6;max-width:600px;margin:0 auto;}
-        
-        .input-card{background:#fff;border-radius:16px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.05);margin-bottom:32px;}
-        .input-card h3{font-size:20px;font-weight:800;margin-bottom:20px;color:#0F172A;}
-        .input-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-bottom:24px;}
-        .input-group{display:flex;flex-direction:column;gap:8px;}
-        .input-label{font-size:13px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.5px;}
-        .input-value{font-size:16px;font-weight:700;color:#0F172A;padding:12px 16px;background:#F8FAFC;border-radius:8px;border:2px solid #E2E8F0;}
-        
-        .calc-btn{width:100%;padding:16px;background:linear-gradient(135deg,#3B82F6,#8B5CF6);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 4px 12px rgba(59,130,246,.3);transition:all .2s;}
-        .calc-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 6px 16px rgba(59,130,246,.4);}
-        .calc-btn:disabled{opacity:.5;cursor:not-allowed;}
-        
-        .result-card{background:linear-gradient(135deg,#0F172A,#1E293B);border-radius:20px;padding:48px;box-shadow:0 8px 24px rgba(0,0,0,.15);margin-bottom:32px;}
-        .score-display{text-align:center;margin-bottom:40px;}
-        .score-ring{width:200px;height:200px;margin:0 auto 24px;position:relative;}
-        .score-circle{transform:rotate(-90deg);}
-        .score-number{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:64px;font-weight:900;color:#fff;}
-        .score-label{font-size:16px;color:rgba(255,255,255,.6);text-align:center;}
-        .grade{display:inline-block;padding:8px 20px;border-radius:20px;font-size:14px;font-weight:800;margin-top:16px;}
-        .grade-excellent{background:rgba(16,185,129,.2);color:#10B981;}
-        .grade-good{background:rgba(59,130,246,.2);color:#60A5FA;}
-        .grade-moderate{background:rgba(245,158,11,.2);color:#FBBF24;}
-        .grade-low{background:rgba(239,68,68,.2);color:#F87171;}
-        
-        .breakdown{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:40px;}
-        .breakdown-item{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:20px;}
-        .breakdown-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
-        .breakdown-label{font-size:14px;font-weight:700;color:rgba(255,255,255,.8);}
-        .breakdown-score{font-size:20px;font-weight:900;color:#fff;}
-        .breakdown-bar{height:8px;background:rgba(255,255,255,.1);border-radius:20px;overflow:hidden;}
-        .breakdown-fill{height:100%;background:linear-gradient(90deg,#3B82F6,#10B981);border-radius:20px;transition:width .8s ease;}
-        
-        .reasons{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);border-radius:12px;padding:24px;margin-bottom:24px;}
-        .reasons h4{font-size:16px;font-weight:800;color:#F87171;margin-bottom:16px;}
-        .reason-item{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;font-size:14px;color:rgba(255,255,255,.9);line-height:1.6;}
-        .reason-item:last-child{margin-bottom:0;}
-        
-        .improvements{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:12px;padding:24px;}
-        .improvements h4{font-size:16px;font-weight:800;color:#10B981;margin-bottom:16px;}
-        .improvement-item{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px;background:rgba(255,255,255,.05);border-radius:8px;margin-bottom:8px;}
-        .improvement-item:last-child{margin-bottom:0;}
-        .improvement-text{font-size:14px;color:rgba(255,255,255,.9);flex:1;}
-        .improvement-impact{font-size:14px;font-weight:800;color:#10B981;white-space:nowrap;}
-        
-        .empty{text-align:center;padding:60px 24px;color:#64748B;}
-        .empty-icon{font-size:64px;margin-bottom:16px;opacity:.3;}
-        .empty h3{font-size:20px;font-weight:800;color:#0F172A;margin-bottom:8px;}
-        .empty p{font-size:14px;line-height:1.6;}
+        body{font-family:'DM Sans',sans-serif;background:#f0f4f8;}
+        .lay{display:flex;min-height:100vh;}
+        .mn{margin-left:230px;flex:1;padding:28px 34px;opacity:0;transition:opacity .3s;}
+        .mn.v{opacity:1;}
+        .ph{margin-bottom:26px;}
+        .ptitle{font-family:'Sora',sans-serif;font-size:24px;font-weight:900;color:#0f172a;letter-spacing:-.5px;}
+        .psub{font-size:13.5px;color:#64748b;margin-top:4px;}
+        .grid{display:grid;grid-template-columns:1fr 1.6fr;gap:20px;align-items:start;}
+        .card{background:#fff;border:1px solid #e8edf3;border-radius:16px;padding:24px;box-shadow:0 2px 12px rgba(0,0,0,.05);}
+        .ctitle{font-family:'Sora',sans-serif;font-size:15px;font-weight:800;color:#0f172a;margin-bottom:18px;}
+        .prow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f8fafc;font-size:13px;}
+        .prow:last-of-type{border-bottom:none;}
+        .plbl{color:#64748b;font-weight:600;}
+        .pval{color:#0f172a;font-weight:700;max-width:180px;text-align:right;word-break:break-word;}
+        .cbtn{width:100%;margin-top:20px;padding:12px;background:linear-gradient(135deg,#4f8ef7,#6366f1);color:#fff;border:none;border-radius:11px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 4px 14px rgba(79,142,247,.28);transition:all .2s;}
+        .cbtn:hover{transform:translateY(-1px);}
+        .cbtn:disabled{opacity:.7;cursor:not-allowed;}
+        .donut-wrap{display:flex;flex-direction:column;align-items:center;margin-bottom:24px;}
+        .grade-label{font-family:'Sora',sans-serif;font-size:17px;font-weight:800;margin-top:12px;}
+        .brow{margin-bottom:14px;}
+        .brow-head{display:flex;justify-content:space-between;margin-bottom:5px;font-size:12.5px;font-weight:700;color:#374151;}
+        .brow-bar{height:8px;background:#f1f5f9;border-radius:20px;overflow:hidden;}
+        .brow-fill{height:100%;border-radius:20px;transition:width 1s ease;}
+        .tip-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f8fafc;}
+        .tip-item:last-child{border-bottom:none;}
+        .tip-impact{font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:5px;background:#ecfdf5;color:#059669;white-space:nowrap;flex-shrink:0;}
+        .tip-text{font-size:13px;color:#374151;line-height:1.5;}
+        .empty-result{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;text-align:center;color:#94a3b8;}
+        .spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#4f8ef7;border-radius:50%;animation:spin 1s linear infinite;}
+        .no-data{background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:12px 16px;font-size:13px;color:#92400e;margin-bottom:16px;}
       `}</style>
 
-      <div className="page">
-        <div className="page-header">
-          <h1>Real Chances Calculator</h1>
-          <p>Get an accurate, data-driven prediction of your chances of landing a UK sponsored role based on your profile, CV, and market demand.</p>
-        </div>
-
-        <div className="input-card">
-          <h3>Your Profile Data</h3>
-          <div className="input-grid">
-            <div className="input-group">
-              <div className="input-label">Target Role</div>
-              <div className="input-value">{profile?.target_roles?.[0] || 'Not set'}</div>
-            </div>
-            <div className="input-group">
-              <div className="input-label">Location</div>
-              <div className="input-value">{profile?.location_city || 'Not set'}</div>
-            </div>
-            <div className="input-group">
-              <div className="input-label">Visa Status</div>
-              <div className="input-value">{profile?.visa_status || 'Not set'}</div>
-            </div>
-            <div className="input-group">
-              <div className="input-label">CV ATS Score</div>
-              <div className="input-value">{cvs[0]?.ats_score || 0}/100</div>
-            </div>
-            <div className="input-group">
-              <div className="input-label">Salary Expectation</div>
-              <div className="input-value">
-                {profile?.salary_min ? `£${profile.salary_min.toLocaleString()} - £${profile.salary_max?.toLocaleString() || '...'}` : 'Not set'}
-              </div>
-            </div>
+      <div className="lay">
+        <Sidebar/>
+        <main className={`mn${visible?' v':''}`}>
+          <div className="ph">
+            <div className="ptitle">Your Chances</div>
+            <div className="psub">Calculate your probability of landing a sponsored UK role based on your profile</div>
           </div>
 
-          {!hasRequiredData ? (
-            <div className="empty">
-              <div className="empty-icon">⚠️</div>
-              <h3>Missing Required Data</h3>
-              <p>Complete your profile and upload a CV to calculate your real chances.</p>
+          {(!profile?.target_roles||!cvScore)&&(
+            <div className="no-data">
+              Complete your profile and upload your CV for an accurate calculation.
+              {!cvScore&&<> <a href="/cv" style={{color:'#d97706',fontWeight:700}}>Upload CV</a> first.</>}
+              {!profile?.target_roles&&<> <a href="/profile" style={{color:'#d97706',fontWeight:700}}>Set target roles</a> in profile.</>}
             </div>
-          ) : (
-            <button
-              className="calc-btn"
-              onClick={calculateChances}
-              disabled={calculating}
-            >
-              {calculating ? '🔄 Calculating Your Real Chances...' : '🎯 Calculate My Real Chances'}
-            </button>
           )}
-        </div>
 
-        {result && (
-          <div className="result-card">
-            <div className="score-display">
-              <div className="score-ring">
-                <svg width="200" height="200">
-                  <circle
-                    cx="100"
-                    cy="100"
-                    r="90"
-                    fill="none"
-                    stroke="rgba(255,255,255,.1)"
-                    strokeWidth="12"
-                  />
-                  <circle
-                    className="score-circle"
-                    cx="100"
-                    cy="100"
-                    r="90"
-                    fill="none"
-                    stroke={result.overall_score >= 70 ? '#10B981' : result.overall_score >= 50 ? '#3B82F6' : '#F59E0B'}
-                    strokeWidth="12"
-                    strokeDasharray={`${(result.overall_score / 100) * 565} 565`}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="score-number">{result.overall_score}%</div>
-              </div>
-              <div className="score-label">Sponsor Likelihood</div>
-              <div className={`grade grade-${
-                result.overall_score >= 70 ? 'excellent' :
-                result.overall_score >= 50 ? 'good' :
-                result.overall_score >= 30 ? 'moderate' : 'low'
-              }`}>
-                {result.overall_score >= 70 ? 'Strong Chance' :
-                 result.overall_score >= 50 ? 'Moderate Chance' :
-                 result.overall_score >= 30 ? 'Fair Chance' : 'Needs Work'}
-              </div>
-            </div>
-
-            <div className="breakdown">
-              {Object.entries(result.breakdown || {}).map(([key, value]: [string, any]) => (
-                <div key={key} className="breakdown-item">
-                  <div className="breakdown-header">
-                    <div className="breakdown-label">
-                      {key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                    </div>
-                    <div className="breakdown-score">{value}%</div>
-                  </div>
-                  <div className="breakdown-bar">
-                    <div className="breakdown-fill" style={{width: `${value}%`}}/>
-                  </div>
+          <div className="grid">
+            {/* LEFT - profile summary */}
+            <div className="card" style={{animation:'fadeUp .4s ease both'}}>
+              <div className="ctitle">Your Profile</div>
+              {[
+                {l:'Target Role',   v:profile?.target_roles?.split(',')[0]||'Not set'},
+                {l:'Location',      v:profile?.location_city||'Not set'},
+                {l:'Visa Status',   v:profile?.visa_status||'Not set'},
+                {l:'CV Score',      v:cvScore?`${cvScore}/100`:'Not uploaded'},
+                {l:'Min Salary',    v:profile?.salary_min?`£${profile.salary_min.toLocaleString()}`:'Not set'},
+                {l:'Contract Type', v:profile?.salary_type||'Not set'},
+              ].map(r=>(
+                <div key={r.l} className="prow">
+                  <span className="plbl">{r.l}</span>
+                  <span className="pval" style={{color:r.v==='Not set'?'#cbd5e1':'#0f172a'}}>{r.v}</span>
                 </div>
               ))}
+              <button className="cbtn" onClick={calculate} disabled={loading}>
+                {loading?'Calculating...':'Calculate My Chances'}
+              </button>
             </div>
 
-            {result.reasons?.length > 0 && (
-              <div className="reasons">
-                <h4>⚠️ Why Your Score Isn't Higher</h4>
-                {result.reasons.map((reason: string, i: number) => (
-                  <div key={i} className="reason-item">
-                    <span>•</span>
-                    <span>{reason}</span>
+            {/* RIGHT - results */}
+            <div className="card" style={{animation:'fadeUp .4s .08s ease both'}}>
+              {loading ? (
+                <div className="empty-result">
+                  <div className="spinner" style={{marginBottom:14}}/>
+                  <div style={{fontFamily:'Sora,sans-serif',fontSize:15,fontWeight:800,color:'#0f172a'}}>Calculating...</div>
+                  <div style={{fontSize:13,marginTop:6}}>Analysing your profile against UK sponsor data</div>
+                </div>
+              ) : !result ? (
+                <div className="empty-result">
+                  <div style={{fontSize:44,marginBottom:12,opacity:.2}}>🎯</div>
+                  <div style={{fontFamily:'Sora,sans-serif',fontSize:16,fontWeight:800,color:'#0f172a',marginBottom:6}}>No Score Yet</div>
+                  <div style={{fontSize:13}}>Click the button to calculate your chances</div>
+                </div>
+              ) : (
+                <>
+                  {/* DONUT */}
+                  <div className="donut-wrap">
+                    <svg width="140" height="140" viewBox="0 0 140 140">
+                      <circle cx="70" cy="70" r="54" fill="none" stroke="#f1f5f9" strokeWidth="16"/>
+                      <circle cx="70" cy="70" r="54" fill="none"
+                        stroke={gradeColor(result.overall_score)}
+                        strokeWidth="16" strokeLinecap="round"
+                        strokeDasharray="339"
+                        strokeDashoffset={339 - (result.overall_score/100)*339}
+                        style={{transform:'rotate(-90deg)',transformOrigin:'70px 70px',transition:'stroke-dashoffset 1s ease'}}
+                      />
+                      <text x="70" y="65" textAnchor="middle" fontSize="24" fontWeight="900" fill={gradeColor(result.overall_score)} fontFamily="Sora,sans-serif">{result.overall_score}%</text>
+                      <text x="70" y="83" textAnchor="middle" fontSize="10.5" fill="#94a3b8" fontWeight="700">{gradeLabel(result.overall_score).toUpperCase()}</text>
+                    </svg>
+                    <div className="grade-label" style={{color:gradeColor(result.overall_score)}}>
+                      {gradeLabel(result.overall_score)}
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
 
-            {result.improvements?.length > 0 && (
-              <div className="improvements">
-                <h4>✨ How to Improve Your Chances</h4>
-                {result.improvements.map((imp: any, i: number) => (
-                  <div key={i} className="improvement-item">
-                    <div className="improvement-text">{imp.fix}</div>
-                    <div className="improvement-impact">{imp.impact}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  {/* BREAKDOWN */}
+                  <div style={{fontFamily:'Sora,sans-serif',fontSize:14,fontWeight:800,color:'#0f172a',marginBottom:14}}>Score Breakdown</div>
+                  {result.breakdown.map(b=>(
+                    <div key={b.label} className="brow">
+                      <div className="brow-head">
+                        <span>{b.label}</span>
+                        <span style={{color:b.color}}>{b.score}%</span>
+                      </div>
+                      <div className="brow-bar">
+                        <div className="brow-fill" style={{width:`${b.score}%`,background:b.color}}/>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* TIPS */}
+                  {result.tips.length>0&&(
+                    <>
+                      <div style={{fontFamily:'Sora,sans-serif',fontSize:14,fontWeight:800,color:'#0f172a',margin:'18px 0 12px'}}>Quick Wins</div>
+                      {result.tips.map((t,i)=>(
+                        <div key={i} className="tip-item">
+                          <div>
+                            <div className="tip-text">{t.text}</div>
+                          </div>
+                          <div className="tip-impact">{t.impact}</div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        )}
+        </main>
       </div>
     </>
   )
+}
+
+function localCalc(profile: any, cvScore: number): Result {
+  const visa = profile?.visa_status||''
+  const sponsorFriendly = ['skilled_worker','tier_2','tier_1','global_talent'].some(v=>visa.toLowerCase().includes(v))
+  const skillScore = Math.min(cvScore||50, 95)
+  const marketScore = profile?.target_roles ? 72 : 50
+  const visaScore = sponsorFriendly ? 85 : visa?60:40
+  const salaryScore = profile?.salary_min ? (profile.salary_min<80000?80:profile.salary_min<120000?65:50) : 60
+  const locationScore = (profile?.location_city||'').toLowerCase().includes('london') ? 90 : 70
+  const overall = Math.round((skillScore*.3)+(marketScore*.25)+(visaScore*.2)+(salaryScore*.15)+(locationScore*.1))
+  const grade = overall>=80?'Excellent':overall>=65?'Good':overall>=50?'Moderate':'Needs Work'
+  const tips = []
+  if(cvScore<75) tips.push({text:'Improve your CV score to 75+',impact:'+8%'})
+  if(!sponsorFriendly) tips.push({text:'Clarify your visa status in profile',impact:'+12%'})
+  if(!profile?.target_roles) tips.push({text:'Set specific target roles',impact:'+6%'})
+  if(profile?.salary_min>100000) tips.push({text:'Consider widening salary range',impact:'+5%'})
+  return {
+    overall_score:overall, grade,
+    breakdown:[
+      {label:'Skill Match',     score:skillScore,    color:'#4f8ef7'},
+      {label:'Market Demand',   score:marketScore,   color:'#10b981'},
+      {label:'Visa Factor',     score:visaScore,     color:'#f59e0b'},
+      {label:'Salary Alignment',score:salaryScore,   color:'#a78bfa'},
+      {label:'Location Score',  score:locationScore, color:'#06b6d4'},
+    ],
+    tips,
+  }
 }

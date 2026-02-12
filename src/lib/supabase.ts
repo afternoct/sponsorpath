@@ -41,6 +41,27 @@ export async function signOut() {
   return supabase.auth.signOut()
 }
 
+export async function signInWithGoogle() {
+  return supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard`,
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent'
+      }
+    }
+  })
+}
+
+export async function verifyOtp(email: string, token: string) {
+  return supabase.auth.verifyOtp({
+    email,
+    token,
+    type: 'email'
+  })
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // PROFILE
 // ═══════════════════════════════════════════════════════════════════
