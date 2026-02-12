@@ -9,7 +9,7 @@
 'use client'
 import Link from 'next/link'
 import { useState } from 'react'
-import { signUp, signInWithGoogle, signInWithLinkedIn } from '@/lib/supabase'
+import { signUp, signInWithGoogle } from '@/lib/supabase'
 
 const STREAMS = ['Software Engineering','DevOps / Cloud','Data & Analytics','Product Management',
   'Finance & Banking','Business Analysis','Consulting','Cyber Security',

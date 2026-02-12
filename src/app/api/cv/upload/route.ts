@@ -18,8 +18,9 @@ async function extractText(file: File): Promise<string> {
   if (fname.endsWith('.pdf')) {
     try {
       // Use pdf-parse for reliable server-side extraction
-      const pdfParse = (await import('pdf-parse')).default
-      const data = await pdfParse(Buffer.from(buf))
+      const pdfParse = (await import('pdf-parse')) as any
+      const data = await pdfParse.default(Buffer.from(buf))
+
       if (data.text && data.text.trim().length > 50) {
         return data.text
       }
